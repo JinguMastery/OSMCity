@@ -80,7 +80,7 @@ public class Main : MonoBehaviour
     private Text coordsText, distFromDest;
     private CityObject destination;
     private long prevDestID;
-    private List<Loader> loaders = new List<Loader>();
+    private readonly List<Loader> loaders = new List<Loader>();
 
     //associe une distance en m chaque latitude entière en ° 
     private static readonly Dictionary<int, int> LatDegDistsDict = new Dictionary<int, int>();
@@ -252,7 +252,6 @@ public class Main : MonoBehaviour
         Vector3 terrainCoords = GetEarthCoords(lat, lon) - terrainCenterCoords;
         return new Vector3(terrainCoords.x, terrainHeight, terrainCoords.z);
     }
-
 
     private Vector3 GetEarthCoords(double lat, double lon)
     {

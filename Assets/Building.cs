@@ -16,49 +16,45 @@ public class Building : CityObject
     [Min(0f)]
     [Delayed]
     public float height = 3f;
-    [Tooltip("number of floors must be greater or equal to 1")]
+    [Tooltip("Number of floors must be greater or equal to 1")]
     [Min(1)]
     [Delayed]
     public int nFloors = 1;
-    [Tooltip("surface must be strictly positive")]
+    [Tooltip("Surface must be strictly positive")]
     [Min(0f)]
     public float netInternalSurface;
     public string buildingType = "yes";
     public string age;
     public Color color = Color.clear;
-    [Tooltip("number must be positive")]
+    [Tooltip("House number must be positive")]
     [Min(0)]
     public int houseNumber;
-    [Tooltip("code must be positive")]
+    [Tooltip("Post code must be positive")]
     [Min(0)]
     public int postCode;
     public string street, city, country;
 
     [Header("Picture of a face of the building")]
-    [Header("Prediction with pictures")]
     public Texture2D picture;
-    [Header("Using width or length ?")]
+    [Header("Using width/length, a color marker, and controller position ?")]
     public bool isWidth = true;
-    [Header("Using a color marker or not ?")]
     public bool useMarker = true;
-    [Header("Using controller position or not ?")]
     public bool useControllerPos = false;
-    [Header("Color used for edge detection")]
+    [Header("Colors used for edge detection and marker")]
     public Color edgeCol = Color.white;
-    [Header("Color used for marker")]
     public Color markerCol = Color.red;
     [Header("Tolerance used for testing the equality of colors")]
-    [Tooltip("tolerance value must be between 0 and 1 included")]
+    [Tooltip("Tolerance value must be between 0 and 1 included")]
     [Range(0f, 1f)]
     public double tolCol = 0;
     [Header("Minimal number of pixels of vertical lines for edge detection")]
-    [Tooltip("number of pixels must be greater or equal to 1")]
+    [Tooltip("Number of pixels must be greater or equal to 1")]
     [Min(1)]
     public int nPixelsEdge = 20;
     [Header("Method used for the height prediction")]
     public PredictionMethod predMethod;
 
-    private float prevHeight, prevNetInternalSurface;
+    private float prevHeight, prev_height, prevNetInternalSurface;
     private float? heightCache;
     private bool prevIsWidth = true, prevUseMarker = true, prevUseControllerPos = false;
     private Color prevEdgeCol = Color.white, prevMarkerCol = Color.red, prevColor;
@@ -294,12 +290,12 @@ public class Building : CityObject
         // Add a material
         if (Surface != null)
             material = Resources.Load<Material>("Materials/" + surface);
-        _ = BuildingMaterial;
-        if (material == null)
+        if (BuildingMaterial == null)
             material = BuildingLoader.DefBuildingMat;
         prevMat = material;
         prevSurface = surface;
-        prevColor = color;
+        prevColor = BuildingColor;
+        prevHeight = Height; prev_height = prevHeight;
 
         if (osmObj.Element.Type == OsmGeoType.Relation)
         {
@@ -340,7 +336,7 @@ public class Building : CityObject
             UpdateRoofMaterial(BuildingLoader.DefRoofMat);
 
         IsMeshCreated = true;
-        prevHeight = Height;
+        prev_height = height;
         prevNetInternalSurface = NetInternalSurface;
         // initialisation des champs
         _ = Length; _ = Width; _ = NFloors; _ = Type; _ = Age; _ = Amenity; _ = Source; _ = Elevation; _ = Surface;
@@ -353,7 +349,7 @@ public class Building : CityObject
     {
         //teste la validité des entrées
         if (height <= 0)
-            height = prevHeight;
+            height = prev_height;
         if (netInternalSurface != prevNetInternalSurface)
             netInternalSurface = prevNetInternalSurface;
         if (width <= 0)
@@ -431,6 +427,7 @@ public class Building : CityObject
             prevColor = color;
         }
 
+        prev_height = Height;
         if (osmObj.Element.Type == OsmGeoType.Node)
         {
             //met à jour la géométrie pour les noeuds si besoin
@@ -440,22 +437,23 @@ public class Building : CityObject
                 AddPrimitive((Node)osmObj.Element);
                 prevGeometry = geometry;
             }
-            if (width != prevWidth || length != prevLength || Height != prevHeight)
+            if (width != prevWidth || length != prevLength || prev_height != prevHeight)
             {
                 UpdatePrimitive((Node)osmObj.Element);
                 prevWidth = width;
                 prevLength = length;
-                prevHeight = height;
+                prevHeight = prev_height;
             }
         }
         else
         {
-            if (Height != prevHeight)
+            if (prev_height != prevHeight)
             {
-                UpdateMesh(height - prevHeight);
-                prevHeight = height;
+                UpdateMesh(prev_height - prevHeight);
+                prevHeight = prev_height;
             }
         }
+        prev_height = height;
     }
 
     private float GetHeight(PredictionMethod method)
@@ -678,8 +676,8 @@ public class Building : CityObject
         cityObj = GameObject.CreatePrimitive(geometry);
         cityObj.name = "ID = " + osmObj.Element.Id;
         cityObj.hideFlags = HideFlags.NotEditable;
-        cityObj.transform.position = new Vector3(pos.x, pos.y + Height / 2f, pos.z);
-        cityObj.transform.localScale = new Vector3(Length, height, Width);
+        cityObj.transform.position = new Vector3(pos.x, pos.y + prev_height / 2f, pos.z);
+        cityObj.transform.localScale = new Vector3(Length, prev_height, Width);
         IsVisible = true;
         // Add infos
         AddObjInfos();
@@ -690,8 +688,8 @@ public class Building : CityObject
         Vector3? pos = GetNodePosition(node);
         if (pos.HasValue)
         {
-            cityObj.transform.position = new Vector3(pos.Value.x, pos.Value.y + Height / 2f, pos.Value.z);
-            cityObj.transform.localScale = new Vector3(Length, height, Width);
+            cityObj.transform.position = new Vector3(pos.Value.x, pos.Value.y + prev_height / 2f, pos.Value.z);
+            cityObj.transform.localScale = new Vector3(Length, prev_height, Width);
         }
     }
 
@@ -711,7 +709,7 @@ public class Building : CityObject
         // Add a ProBuilderMesh component (ProBuilder mesh data is stored here)
         mesh = cityObj.AddComponent<ProBuilderMesh>();
         // Create a mesh from the polygon shape with the real or predicted height
-        ActionResult act = mesh.CreateShapeFromPolygon(pos.ToList(), Height, false);
+        ActionResult act = mesh.CreateShapeFromPolygon(pos.ToList(), prev_height, false);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         IsVisible = act.ToBool();
         // Add a mesh collider
@@ -724,7 +722,7 @@ public class Building : CityObject
     {
         // Update the texture and the color
         UpdateMaterial();
-        if (BuildingColor != Color.clear)
+        if (color != Color.clear)
             UpdateColor(color);
         // Add a canvas and text fields for node positions and miscellanous infos
         Text t = cityObj.AddComponent<Text>();

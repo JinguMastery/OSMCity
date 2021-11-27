@@ -6,25 +6,76 @@ using UnityEngine;
 using UnityEngine.ProBuilder;
 using UnityEngine.ProBuilder.MeshOperations;
 
+public enum RoofShape
+{
+    Gabled, Pyramidal, Hipped, HalfHipped, Skillion, Gambrel, Mansard, Round, Dome, Flat, None,
+}
+
 public class Roof : MonoBehaviour
 {
 
-    public string shape, orientation, direction;
+    [Header("General roof attributes")]
+    public RoofShape shape = RoofShape.None;
+    public bool isAcross;
     public Material material;
-    public int nLevels = 1;
     public Color color = Color.clear;
-    public float height = 1, angle, hipWidth = 1;
+    [Tooltip("Number of levels must be greater or equal to 1")]
+    [Min(1)]
+    [Delayed]
+    public int nLevels = 1;
+    [Tooltip("Height must be strictly positive")]
+    [Min(0f)]
+    [Delayed]
+    public float height = 1;
+    [Tooltip("Slope angle must be between 0° and 90° included")]
+    [Range(0f, 90f)]
+    public float slope;
+    [Tooltip("Direction angle must be between 0° and 360° included")]
+    [Range(0f, 360f)]
+    public float direction;
+    [Header("Hip roof attributes")]
+    [Tooltip("Hip length must be positive")]
+    [Min(0f)]
+    public float hipLength = 1;
+    [Tooltip("Hip height must be strictly positive")]
+    [Min(0f)]
+    public float hipHeight = 0.5f;
+    [Tooltip("Mid width must be strictly positive")]
+    [Min(0f)]
+    public float midWidth = 0.1f;
+    [Tooltip("Mid length must be strictly positive")]
+    [Min(0f)]
+    public float midLength = 0.1f;
 
     private Building building;      //The building this roof is attached to
     private ProBuilderMesh mesh;
+    private float prevHipLength = 1, prevHipHeight = 0.5f, prevMidWidth = 0.1f, prevMidLength = 0.1f, prevSlope, prevDirection, prevHeight, prev_height;
+    private Material prevMat;
+    private Color prevColor;
+    private RoofShape prevShape;
+    private bool prevIsAcross;
 
-    public string Shape
+    public RoofShape Shape
     {
         get
         {
             if (building.OsmObject.Element.Tags.TryGetValue("roof:shape", out string shape) | building.OsmObject.Element.Tags.TryGetValue("building:roof:shape", out string shape2))
             {
-                this.shape = shape ?? shape2;
+                string strShape = shape ?? shape2;
+                if (Enum.TryParse(strShape, true, out RoofShape value))
+                    this.shape = value;
+                else
+                {
+                    if (strShape == "pitched")
+                        this.shape = RoofShape.Gabled;
+                    else
+                    {
+                        if (strShape == "half-hipped")
+                            this.shape = RoofShape.HalfHipped;
+                        else
+                            this.shape = RoofShape.None;
+                    }
+                }
             }
             return this.shape;
         }
@@ -49,27 +100,28 @@ public class Roof : MonoBehaviour
         }
     }
 
-    public string Orientation
+    public bool Orientation
     {
         get
         {
             if (building.OsmObject.Element.Tags.TryGetValue("roof:orientation", out string orientation))
             {
-                this.orientation = orientation;
-                if (orientation == "accross")
-                    this.orientation = "across";
+                if (orientation == "across" || orientation == "accross" || orientation == "acr")
+                    isAcross = true;
+                else
+                    isAcross = false;
             }
-            return this.orientation;
+            return isAcross;
         }
     }
 
-    public string Direction
+    public float Direction
     {
         get
         {
             if (building.OsmObject.Element.Tags.TryGetValue("roof:direction", out string direction))
             {
-                this.direction = direction;
+                this.direction = GetDirectionAngle(direction);
             }
             return this.direction;
         }
@@ -107,7 +159,7 @@ public class Roof : MonoBehaviour
     {
         get
         {
-            if (Orientation == "across")
+            if (isAcross)
                 return Mathf.Max(building.Length, building.Width);
             else
                 return Mathf.Min(building.Length, building.Width);
@@ -119,7 +171,7 @@ public class Roof : MonoBehaviour
     {
         get
         {
-            if (Orientation == "across")
+            if (isAcross)
                 return Mathf.Min(building.Length, building.Width);
             else
                 return Mathf.Max(building.Length, building.Width);
@@ -143,10 +195,7 @@ public class Roof : MonoBehaviour
                 }
                 if (h == 0f)
                 {
-                    if (Angle != 0f)
-                        return Mathf.Tan(angle) * Width / 2;
-                    else
-                        return height * building.OsmObject.Loader.Main.yMeterScale * NLevels;
+                    return GetHeight(slope);
                 }
                 else
                 {
@@ -156,10 +205,7 @@ public class Roof : MonoBehaviour
             }
             else
             {
-                if (Angle != 0f)
-                    return Mathf.Tan(angle) * Width / 2;
-                else
-                    return height * building.OsmObject.Loader.Main.yMeterScale * NLevels;
+                return GetHeight(slope);
             }
         }
     }
@@ -172,14 +218,14 @@ public class Roof : MonoBehaviour
             {
                 try
                 {
-                    angle = float.Parse(strAngle, CultureInfo.InvariantCulture);
+                    slope = float.Parse(strAngle.Replace("°", ""), CultureInfo.InvariantCulture);
                 }
                 catch (Exception exc)
                 {
                     Debug.LogWarning(exc.Message + strAngle);
                 }
             }
-            return angle;
+            return slope;
         }
     }
 
@@ -187,56 +233,59 @@ public class Roof : MonoBehaviour
     void Start()
     {
         // Add a material
-        _ = RoofMaterial;
-        if (material == null)
+        if (RoofMaterial == null)
             material = BuildingLoader.DefRoofMat;
+        prevMat = material; prevColor = RoofColor; prevHeight = Height; prev_height = prevHeight; prevIsAcross = Orientation; prevSlope = Angle; prevDirection = Direction; prevShape = Shape;
 
         if (building.OsmObject.Element.Type == OsmGeoType.Way)
         {
-            switch (Shape)
+            switch (shape)
             {
-                case "pitched":
-                case "gabled":
-                    hipWidth = 0;
-                    goto case "hipped";
-                case "pyramidal":
-                    hipWidth = Length / 2;
-                    goto case "hipped";
-                case "hipped":
-                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, Height, Length));
-                    ToHipped(hipWidth);
-                    UpdateRoof();
+                case RoofShape.Gabled:
+                    hipLength = 0; prevHipLength = 0;
+                    goto case RoofShape.Hipped;
+                case RoofShape.Pyramidal:
+                    hipLength = Length / 2; prevHipLength = hipLength;
+                    goto case RoofShape.Hipped;
+                case RoofShape.Hipped:
+                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                    ToHipped(hipLength);
                     break;
-                case "skillion":
+                case RoofShape.HalfHipped:
+                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                    ToHalfHipped(hipLength, hipHeight);
+                    break;
+                case RoofShape.Gambrel:
+                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                    ToGambrel(hipHeight, midWidth);
+                    break;
+                case RoofShape.Mansard:
+                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                    ToMansard(hipLength, hipHeight, midWidth, midLength);
+                    break;
+                case RoofShape.Skillion:
                     ToSkillion();
-                    UpdateRoof();
                     break;
-                case "half-hipped":
-                    mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, Height, Length));
-                    ToHalfHipped(hipWidth);
-                    UpdateRoof();
-                    break;
-                case "flat":
-                    height = 0.01f;
+                case RoofShape.Flat:
+                    height = 0.01f; prevHeight = Height;
                     mesh = ShapeGenerator.GeneratePlane(PivotLocation.Center, building.Width, building.Length, 0, 0, Axis.Up);
                     mesh.DuplicateAndFlip(mesh.faces.ToArray());
-                    UpdateRoof();
                     break;
-                case "round":
-                    height = Width / 2;
+                case RoofShape.Round:
+                    height = Width / 2; prevHeight = Height;
                     ToRound(10);
-                    UpdateRoof();
                     break;
-                case "dome":
-                    height = Width / 2;
+                case RoofShape.Dome:
+                    height = Width / 2; prevHeight = Height;
                     ToDome(5);
-                    UpdateRoof();
                     break;
-                default:
+                case RoofShape.None:
                     // in this case, it doesn't have a roof
                     building.UpdateRoofMaterial(material);
                     break;
             }
+            prev_height = height;
+            UpdateRoof();
         }
         else
         {
@@ -256,7 +305,40 @@ public class Roof : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        
+        //teste la validité des entrées
+        if (height <= 0 || height >= building.Height)
+            height = prev_height;
+        if (hipHeight <= 0 || hipHeight >= height)
+            hipHeight = prevHipHeight;
+        if (hipLength < 0 || hipLength > Length / 2)
+            hipLength = prevHipLength;
+        if (midLength <= 0)
+            midLength = prevMidLength;
+        if (midWidth <= 0)
+            midWidth = prevMidWidth;
+        if (slope < 0 || slope > 90)
+            slope = prevSlope;
+        if (direction < 0 || direction > 360)
+            direction = prevDirection;
+
+        //met à jour la texture et la couleur si besoin
+        if (material != null && prevMat != null && material.name != prevMat.name)
+        {
+            UpdateMaterial();
+            prevMat = material;
+        }
+        if (color != prevColor)
+        {
+            UpdateColor(color);
+            prevColor = color;
+        }
+
+        prev_height = Height;
+        if (prev_height != prevHeight)
+        {
+            prevHeight = prev_height;
+        }
+        prev_height = height;
     }
 
     public void SetBuilding(Building building)
@@ -264,9 +346,17 @@ public class Roof : MonoBehaviour
         this.building = building;
     }
 
+    private float GetHeight(float angle)
+    {
+        if (angle != 0f || angle != 90f || angle != 180f || angle != 270f)
+            return Mathf.Abs(Mathf.Tan(angle * Mathf.Deg2Rad)) * Width / 2;
+        else
+            return height * building.OsmObject.Loader.Main.yMeterScale * NLevels;
+    }
+
     private void ToDome(int subDiv)
     {
-        mesh = ShapeGenerator.GenerateIcosahedron(PivotLocation.Center, Width / 2, subDiv, false);
+        mesh = ShapeGenerator.GenerateIcosahedron(PivotLocation.Center, height, subDiv, false);
         var facesBelow = from face in mesh.faces
                          where mesh.positions[face.distinctIndexes[0]].y <= 0 && mesh.positions[face.distinctIndexes[1]].y <= 0 && mesh.positions[face.distinctIndexes[2]].y <= 0
                          select face;
@@ -285,7 +375,7 @@ public class Roof : MonoBehaviour
 
     private void ToRound(float radialCutsMult)
     {
-        mesh = ShapeGenerator.GenerateArch(PivotLocation.Center, 180, Width / 2, Width / 2, Length, (int)(Width / 2 * radialCutsMult), false, true, true, true, true);
+        mesh = ShapeGenerator.GenerateArch(PivotLocation.Center, 180, height, height, Length, (int)(height * radialCutsMult), false, true, true, true, true);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         var archFaces = from face in mesh.faces
                         where face.distinctIndexes.Count == 4
@@ -301,82 +391,77 @@ public class Roof : MonoBehaviour
         mesh.Refresh();
     }
 
-    private void ToHipped(float w)
+    private void ToHipped(float hipL)
     {
-        if (mesh == null)
+        if (mesh == null || hipL == 0f)
             return;
-        if (w > 0)
-        {
-            var ridgeVertices = from sv in mesh.sharedVertices
-                                where mesh.positions[sv[0]].y > 0
-                                select sv;
-            if (ridgeVertices.Count() != 2)
-                return;
-            float x1 = mesh.positions[ridgeVertices.First()[0]].x, x2 = mesh.positions[ridgeVertices.Last()[0]].x;
-            float z1 = mesh.positions[ridgeVertices.First()[0]].z, z2 = mesh.positions[ridgeVertices.Last()[0]].z;
-            float magnitude = Mathf.Sqrt((x2 - x1) * (x2 - x1) + (z2 - z1) * (z2 - z1));
-            Vector3 hipVect = new Vector3(w / magnitude * (x2 - x1), 0, w / magnitude * (z2 - z1));
-            mesh.TranslateVertices(ridgeVertices.First(), hipVect);
-            mesh.TranslateVertices(ridgeVertices.Last(), -hipVect);
-        }
+        var ridgeVertices = from sv in mesh.sharedVertices
+                            where mesh.positions[sv[0]].y == height / 2
+                            select sv;
+
+        if (ridgeVertices.Count() != 2)
+            return;
+        float x1 = mesh.positions[ridgeVertices.First()[0]].x, x2 = mesh.positions[ridgeVertices.Last()[0]].x;
+        float z1 = mesh.positions[ridgeVertices.First()[0]].z, z2 = mesh.positions[ridgeVertices.Last()[0]].z;
+        float norm = Mathf.Sqrt((x2 - x1) * (x2 - x1) + (z2 - z1) * (z2 - z1));
+        Vector3 hipVect = new Vector3(hipL / norm * (x2 - x1), 0, hipL / norm * (z2 - z1));
+        mesh.TranslateVertices(ridgeVertices.First(), hipVect);
+        mesh.TranslateVertices(ridgeVertices.Last(), -hipVect);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         mesh.ToMesh();
         mesh.Refresh();
     }
 
-    private void ToHalfHipped(float w)
+    private void ToHalfHipped(float hipL, float hipH)
     {
-        if (mesh == null || w == 0f)
+        if (mesh == null || hipL == 0f)
             return;
+        CreateMidVertices(0, hipH);
+
+        //get the hipped roof shape
+        ToHipped(hipL);
+    }
+
+    private void CreateMidVertices(float hipL, float hipH)
+    {
         var baseVertices = from sv in mesh.sharedVertices
-                           where mesh.positions[sv[0]].y < 0
+                           where mesh.positions[sv[0]].y == -height / 2
                            select mesh.positions[sv[0]];
         if (baseVertices.Count() != 4)
             return;
         List<Vector3> newPos = new List<Vector3>();
         foreach (Vector3 v in baseVertices)
         {
-            newPos.Add(new Vector3(v.x / 2, 0, v.z));
+            newPos.Add(new Vector3(v.x - hipH * Width / (2 * height) * Mathf.Sign(v.x), v.y + hipH, v.z - hipH * hipL / height * Mathf.Sign(v.z)));
         }
         List<Face> faces = new List<Face>(mesh.faces);
         for (int i = 0; i < mesh.faceCount; i++)
         {
+            var ridgeVerticesFace = from ind in mesh.faces[i].distinctIndexes
+                                    where mesh.positions[ind].y == height / 2
+                                    select mesh.positions[ind];
+            if (!ridgeVerticesFace.Any())
+                continue;
+            var baseVerticesFace = from ind in mesh.faces[i].distinctIndexes
+                                   where mesh.positions[ind].y == -height / 2
+                                   select mesh.positions[ind];
+            IEnumerable<Vector3> newVerticesFace;
             if (mesh.faces[i].distinctIndexes.Count == 3)
             {
-                var ridgeVerticesFace = from ind in mesh.faces[i].distinctIndexes
-                                        where mesh.positions[ind].y > 0
-                                        select mesh.positions[ind];
-                var newVerticesFace = from pos in newPos
-                                      where ridgeVerticesFace.First().z == pos.z
-                                      select pos;
-                Face newFace = mesh.AppendVerticesToFace(mesh.faces[i], newVerticesFace.ToArray());
-                faces[i] = newFace;
-                mesh.faces = faces;
+                newVerticesFace = from pos in newPos
+                                  where pos.z >= Mathf.Min(ridgeVerticesFace.First().z, baseVerticesFace.First().z) && pos.z <= Mathf.Max(ridgeVerticesFace.First().z, baseVerticesFace.First().z)
+                                  select pos;
             }
             else
             {
-                if (mesh.faces[i].distinctIndexes.Count == 4)
-                {
-                    var ridgeVerticesFace = from ind in mesh.faces[i].distinctIndexes
-                                            where mesh.positions[ind].y > 0
-                                            select mesh.positions[ind];
-                    if (ridgeVerticesFace.Any())
-                    {
-                        var baseVerticesFace = from ind in mesh.faces[i].distinctIndexes
-                                               where mesh.positions[ind].y < 0
-                                               select mesh.positions[ind];
-                        var newVerticesFace = from pos in newPos
-                                              where pos.x > Mathf.Min(ridgeVerticesFace.First().x, baseVerticesFace.First().x) && pos.x < Mathf.Max(ridgeVerticesFace.First().x, baseVerticesFace.First().x)
-                                              select pos;
-                        Face newFace = mesh.AppendVerticesToFace(mesh.faces[i], newVerticesFace.ToArray());
-                        faces[i] = newFace;
-                        mesh.faces = faces;
-                    }
-                }
+                newVerticesFace = from pos in newPos
+                                  where pos.x > Mathf.Min(ridgeVerticesFace.First().x, baseVerticesFace.First().x) && pos.x < Mathf.Max(ridgeVerticesFace.First().x, baseVerticesFace.First().x)
+                                  select pos;
             }
+            Face newFace = mesh.AppendVerticesToFace(mesh.faces[i], newVerticesFace.ToArray());
+            faces[i] = newFace;
+            mesh.faces = faces;
         }
-        //get the hipped roof shape
-        ToHipped(w);
     }
 
     private void ToSkillion()
@@ -385,7 +470,7 @@ public class Roof : MonoBehaviour
         {
             new Vector3(0, 0, 0),
             new Vector3(Width, 0, 0),
-            new Vector3(0, Height, 0),
+            new Vector3(0, height, 0),
             new Vector3(Width, 0, Length),
             new Vector3(0, height, Length),
             new Vector3(0, 0, Length)
@@ -422,8 +507,56 @@ public class Roof : MonoBehaviour
         mesh.Refresh();
     }
 
+    private void ToMansard(float hipL, float hipH, float midW, float midL)
+    {
+        if (mesh == null || hipL == 0f || midL == 0f)
+            return;
+        //get the hipped roof shape
+        ToHipped(hipL);
+        CreateMidVertices(hipL, hipH);
+        TranslateMidVertices(hipL, midW, midL);
+    }
+
+    private void ToGambrel(float hipH, float midW)
+    {
+        if (mesh == null || midW == 0f)
+            return;
+        CreateMidVertices(0, hipH);
+        TranslateMidVertices(0, midW, 0);
+    }
+
+    private void TranslateMidVertices(float hipL, float midW, float midL)
+    {
+        if (mesh == null || midW == 0f && midL == 0f)
+            return;
+        var midVertices = from sv in mesh.sharedVertices
+                          where mesh.positions[sv[0]].y > -height / 2 && mesh.positions[sv[0]].y < height / 2
+                          select sv;
+
+        float wNorm = Mathf.Sqrt(4 * height * height + Width * Width), lNorm = Mathf.Sqrt(height * height + hipL * hipL);
+        foreach (var midVertex in midVertices)
+        {
+            float sx = Mathf.Sign(mesh.positions[midVertex[0]].x), sz = Mathf.Sign(mesh.positions[midVertex[0]].z);
+            Vector3 midVect = new Vector3(2 * height * midW / wNorm * sx, midW * Width / wNorm + midL * hipL / lNorm, midL * height / lNorm * sz);
+            mesh.TranslateVertices(midVertex, midVect);
+            float x = mesh.positions[midVertex[0]].x, y = mesh.positions[midVertex[0]].y, z = mesh.positions[midVertex[0]].z;
+            if (x < -Width / 2 || x > Width / 2)
+                x = x < -Width / 2 ? -Width / 2 : Width / 2;
+            if (y < -height / 2 || y > height / 2)
+                y = y < -height / 2 ? -height / 2 : height / 2;
+            if (z < -Length / 2 || z > Length / 2)
+                z = z < -Length / 2 ? -Length / 2 : Length / 2;
+            mesh.SetSharedVertexPosition(mesh.sharedVertices.IndexOf(midVertex), new Vector3(x, y, z));
+        }
+        mesh.DuplicateAndFlip(mesh.faces.ToArray());
+        mesh.ToMesh();
+        mesh.Refresh();
+    }
+
     private void UpdateRoof()
     {
+        if (mesh == null)
+            return;
         // Firstly, we update the height of the building facade
         building.UpdateMesh(-height);
         if (building.OsmObject.Loader.Main.hideMeshInHierarchy)
@@ -435,24 +568,21 @@ public class Roof : MonoBehaviour
         }
         mesh.name = "ID = " + building.OsmObject.Element.Id;
         // Update the texture and the color
-        if (shape != "round")
+        if (shape != RoofShape.Round)
             UpdateMaterial();
-        if (RoofColor != Color.clear)
+        if (color != Color.clear)
             UpdateColor(color);
         // Update the mesh position
         Vector3 pos = (Vector3)building.Center;
         pos.y = building.Height - height / 2f;
         mesh.transform.position = pos;
         // Update the mesh rotation
-        float angle = GetDirectionAngle(), preAngle;
-        if (shape != "flat" && shape != "dome" && Length == building.Length)
+        float preAngle;
+        if (shape != RoofShape.Flat && shape != RoofShape.Dome && Length == building.Length)
             preAngle = 90;
         else
             preAngle = 0;
-        if (!float.IsNaN(angle))
-            mesh.transform.rotation = Quaternion.Euler(0, preAngle + angle, 0);
-        else
-            mesh.transform.rotation = Quaternion.Euler(0, preAngle, 0);
+        mesh.transform.rotation = Quaternion.Euler(0, preAngle + direction, 0);
     }
 
     private void UpdateMaterial()
@@ -472,15 +602,15 @@ public class Roof : MonoBehaviour
         renderer.material.color = col;
     }
 
-    private float GetDirectionAngle()       //retourne l'angle de direction auquel la face principale du toit fait face en degrés
+    private float GetDirectionAngle(string dir)       //retourne l'angle de direction auquel la face principale du toit fait face en degrés
     {
         try
         {
-            return float.Parse(Direction, CultureInfo.InvariantCulture);
+            return float.Parse(dir, CultureInfo.InvariantCulture);
         }
         catch (Exception)
         {
-            return direction switch
+            return dir switch
             {
                 "N" => 0,
                 "E" => 90,
@@ -498,7 +628,7 @@ public class Roof : MonoBehaviour
                 "WSW" => 247.5f,
                 "WNW" => 292.5f,
                 "NNW" => 337.5f,
-                _ => float.NaN,
+                _ => 0,
             };
         }
     }
