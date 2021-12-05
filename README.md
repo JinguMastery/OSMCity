@@ -1,2 +1,2 @@
 # My-Unity-Project-OSMCity
-A Unity project about rebuilding cities from OpenStreetMap data.
+My Unity project is about rebuilding cities from OpenStreetMap data.
