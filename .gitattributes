@@ -1,1 +1,1 @@
-Assets/Resources/XmlFiles/*.xml filter=lfs diff=lfs merge=lfs -text
+Assets/Resources/XmlFiles/luxembourg-buildings-ways.xml filter=lfs diff=lfs merge=lfs -text
