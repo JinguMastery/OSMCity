@@ -38,12 +38,12 @@ namespace UnityStandardAssets.Vehicles.Aeroplane
         // Update is called once per frame
         private void Update()
         {
-            if (m_State == GearState.Lowered && m_Plane.Altitude > raiseAtAltitude && m_Rigidbody.velocity.y > 0)
+            if (m_State == GearState.Lowered && m_Plane.Altitude > raiseAtAltitude && m_Rigidbody.linearVelocity.y > 0)
             {
                 m_State = GearState.Raised;
             }
 
-            if (m_State == GearState.Raised && m_Plane.Altitude < lowerAtAltitude && m_Rigidbody.velocity.y < 0)
+            if (m_State == GearState.Raised && m_Plane.Altitude < lowerAtAltitude && m_Rigidbody.linearVelocity.y < 0)
             {
                 m_State = GearState.Lowered;
             }

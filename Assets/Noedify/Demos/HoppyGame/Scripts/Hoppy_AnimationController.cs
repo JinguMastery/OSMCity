@@ -56,7 +56,7 @@ public class Hoppy_AnimationController : MonoBehaviour
     {
         transform.position = startingPos;
         if (rbody)
-            rbody.velocity = Vector2.zero;
+            rbody.linearVelocity = Vector2.zero;
         for (int i = 0; i < 2; i++)
             sprites[i].color = spriteColor;
         sprites[2].color = Color.red;
@@ -90,7 +90,7 @@ public class Hoppy_AnimationController : MonoBehaviour
     {
         if (transform.position.y < 22)
         {
-            rbody.velocity = (Vector3.up * flapStrength * magnitude);
+            rbody.linearVelocity = (Vector3.up * flapStrength * magnitude);
             StartCoroutine(FlapAnimation());
         }
     }
@@ -114,7 +114,7 @@ public class Hoppy_AnimationController : MonoBehaviour
         }
         else if (collision.gameObject.tag == "Hoppy_Upperlimit")
         {
-            rbody.velocity = Vector2.down;
+            rbody.linearVelocity = Vector2.down;
         }
     }
 
