@@ -242,7 +242,7 @@ public class Roof : MonoBehaviour
             material = BuildingLoader.DefRoofMat;
         prevMat = material; prevColor = RoofColor; prevHeight = Height; prev_height = prevHeight; prevIsAcross = Orientation; prevSlope = Angle; prevDirection = Direction; prevShape = Shape;
 
-        if (building.OsmObject.Element.Type == OsmGeoType.Way)
+        if (building.OsmObject.Element.Type == OsmGeoType.Way || building.OsmObject.Element.Type == OsmGeoType.Node)
         {
             UpdateShape();
             prev_height = height;
@@ -250,17 +250,9 @@ public class Roof : MonoBehaviour
         }
         else
         {
-            if (building.OsmObject.Element.Type == OsmGeoType.Node)
-            {
-
-            }
-            else
-            {
-                // rooflines must be connected to buildings via relations
-                CheckRoofLines();
-            }
+            // rooflines must be connected to buildings via relations
+            CheckRoofLines();
         }
-
     }
 
     // Update is called once per frame
@@ -302,7 +294,12 @@ public class Roof : MonoBehaviour
             if (mesh != null) {
                 Destroy(mesh.gameObject);
                 if (building.Height > height)
-                    building.UpdateMesh(height);
+                {
+                    if (building.OsmObject.Element.Type == OsmGeoType.Node)
+                        building.UpdatePrimitiveHeight(height);
+                    else
+                        building.UpdateMesh(height);
+                }
             }
             prevHeight = Height;
             UpdateShape();
@@ -327,16 +324,12 @@ public class Roof : MonoBehaviour
             prevDirection = direction;
         }
 
-        if (building.OsmObject.Element.Type == OsmGeoType.Node)
+        if (prev_height != height && shape != RoofShape.Dome)
         {
-            
-        }
-        else
-        {
-            if (prev_height != height && shape != RoofShape.Dome)
-            {
+            if (building.OsmObject.Element.Type == OsmGeoType.Node)
+                building.UpdatePrimitiveHeight(prev_height - height);
+            else
                 building.UpdateMesh(prev_height - height);
-            }
         }
         prev_height = height;
         prevHeight = Height;
@@ -864,7 +857,12 @@ public class Roof : MonoBehaviour
             return;
         // Firstly, we update the height of the building facade
         if (building.Height > height)
-            building.UpdateMesh(-height);
+        {
+            if (building.OsmObject.Element.Type == OsmGeoType.Node)
+                building.UpdatePrimitiveHeight(-height);
+            else
+                building.UpdateMesh(-height);
+        }
         if (building.OsmObject.Loader.Main.hideMeshInHierarchy)
             mesh.hideFlags = HideFlags.HideInHierarchy;
         else

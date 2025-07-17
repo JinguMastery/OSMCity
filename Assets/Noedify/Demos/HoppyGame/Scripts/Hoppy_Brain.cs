@@ -98,7 +98,7 @@ public class Hoppy_Brain : MonoBehaviour
         */
         float[] sensorInputs = new float[no_observations];
         sensorInputs[0] = (transform.position.y - 3.5f) / 10.5f;
-        sensorInputs[1] = (animationController.rbody.velocity.y) / 20f;
+        sensorInputs[1] = (animationController.rbody.linearVelocity.y) / 20f;
 
         if (simController.obstacles.Count > 0)
         {

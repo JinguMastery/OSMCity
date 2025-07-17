@@ -693,6 +693,16 @@ public class Building : CityObject
         }
     }
 
+    public void UpdatePrimitiveHeight(float heightOffset)
+    {
+        Vector3? pos = GetNodePosition((Node)osmObj.Element);
+        if (pos.HasValue)
+        {
+            cityObj.transform.position = new Vector3(pos.Value.x, pos.Value.y + (height + heightOffset) / 2f, pos.Value.z);
+            cityObj.transform.localScale = new Vector3(Length, height + heightOffset, Width);
+        }
+    }
+
     private void CreateRoof()
     {
         Roof roof = gameObject.AddComponent<Roof>();
