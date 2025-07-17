@@ -297,7 +297,7 @@ public class Roof : MonoBehaviour
         }
         
         //met à jour la forme et l'orientation si besoin
-        if (prev_height != height || shape != prevShape || isAcross != prevIsAcross || hipLength != prevHipLength && IsHipLengthRoofShape(shape) || hipHeight != prevHipHeight && IsHipHeightRoofShape(shape) ||
+        if (prevHeight != Height || prev_height != height || shape != prevShape || isAcross != prevIsAcross || hipLength != prevHipLength && IsHipLengthRoofShape(shape) || hipHeight != prevHipHeight && IsHipHeightRoofShape(shape) ||
             midLength != prevMidLength && shape == RoofShape.Mansard || midWidth != prevMidWidth && (shape == RoofShape.Gambrel || shape == RoofShape.Mansard || shape == RoofShape.Hipped_And_Gabled)) {
             if (mesh != null) {
                 Destroy(mesh.gameObject);
@@ -339,6 +339,7 @@ public class Roof : MonoBehaviour
             }
         }
         prev_height = height;
+        prevHeight = Height;
         prevSlope = slope;
     }
 

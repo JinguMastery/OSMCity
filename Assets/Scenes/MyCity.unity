@@ -440,7 +440,7 @@ MonoBehaviour:
   testPath: G:\Buildings\liechtenstein_test.txt
   heightsFile: liechtenstein_heights.txt
   nBuildingNodes: 0
-  nBuildingWays: -1
+  nBuildingWays: 100
   reverseOrder: 0
   predMethod: 1
   writeFeatures: 0
