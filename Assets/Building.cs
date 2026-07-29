@@ -340,7 +340,7 @@ public class Building : CityObject
         prevNetInternalSurface = NetInternalSurface;
         // initialisation des champs
         _ = Length; _ = Width; _ = NFloors; _ = Type; _ = Age; _ = Amenity; _ = Source; _ = Elevation; _ = Surface;
-        //attributs relatifs aux bâtiments
+        // attributs relatifs aux bâtiments
         _ = HouseNumber; _ = PostCode; _ = Street; _ = City; _ = Country;
     }
 

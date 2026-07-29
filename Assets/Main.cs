@@ -93,8 +93,11 @@ public class Main : MonoBehaviour
     void Start()
     {
         BuildingLoader buildingLoader = gameObject.AddComponent<BuildingLoader>();
+        HighwayLoader highwayLoader = gameObject.AddComponent<HighwayLoader>();
         loaders.Add(buildingLoader);
+        loaders.Add(highwayLoader);
         buildingLoader.Main = this;
+        highwayLoader.Main = this;
         Controller = GameObject.Find("/FPSController");
         coordsText = GameObject.Find("/Canvas/CoordsText").GetComponent<Text>();
         distFromDest = GameObject.Find("/Canvas/DistFromDest").GetComponent<Text>();
@@ -255,6 +258,8 @@ public class Main : MonoBehaviour
 
     private Vector3 GetEarthCoords(double lat, double lon)
     {
+        if (lat == double.NaN || lon == double.NaN)
+            return Vector3.zero;
         int intLat = Mathf.RoundToInt(Mathf.Abs((float)lat));
         double avgDist = LatDegDistsDict.Values.ToList().GetRange(0, intLat + 1).Average();
         double zMeter = lat * avgDist ;

@@ -2,6 +2,7 @@
 using System.Collections.Generic; //Needed for Lists
 using System.Xml; //Needed for XML functionality
 using System;
+using System.IO;
 using System.Linq;
 using System.Globalization;
 
@@ -76,17 +77,17 @@ public abstract class Loader : MonoBehaviour
     {
         try
         {
-            if (allPath != null && allPath.Length > 0)
+            if (allPath != null && allPath.Length > 0 && File.Exists(allPath))
             {
                 allReader = XmlReader.Create(allPath);
                 ReadXML(allReader);
             }
-            if (tagsPath != null && tagsPath.Length > 0)
+            if (tagsPath != null && tagsPath.Length > 0 && File.Exists(tagsPath))
             {
                 tagsReader = XmlReader.Create(tagsPath);
                 ReadTagXML(tagsReader);
             }
-            if (nodesPath != null && nodesPath.Length > 0)
+            if (nodesPath != null && nodesPath.Length > 0 && File.Exists(nodesPath))
             {
                 nodesReader = XmlReader.Create(nodesPath);
                 nodesReader.MoveToContent();
@@ -98,7 +99,7 @@ public abstract class Loader : MonoBehaviour
                         subNodes.Add(node);
                 }
             }
-            if (waysPath != null && waysPath.Length > 0)
+            if (waysPath != null && waysPath.Length > 0 && File.Exists(waysPath))
             {
                 waysReader = XmlReader.Create(waysPath);
                 waysReader.MoveToContent();
@@ -110,7 +111,7 @@ public abstract class Loader : MonoBehaviour
                         subWays.Add(way);
                 }
             }
-            if (relationsPath != null && relationsPath.Length > 0)
+            if (relationsPath != null && relationsPath.Length > 0 && File.Exists(relationsPath))
             {
                 relationsReader = XmlReader.Create(relationsPath);
                 relationsReader.MoveToContent();
