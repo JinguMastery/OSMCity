@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.ProBuilder;
@@ -66,13 +67,9 @@ public class Highway : CityObject
                     {
                         length += Vector3.Distance(pos[i], pos[i + 1]);
                     }
-                    highwayLength = length * osmObj.Loader.Main.xMeterScale;
-                    return highwayLength;
+                    highwayLength = length;
                 }
-                else
-                {
-                    return highwayLength * osmObj.Loader.Main.xMeterScale;
-                }
+                return highwayLength * osmObj.Loader.Main.xMeterScale;
             }
         }
     }
@@ -222,8 +219,10 @@ public class Highway : CityObject
         mesh = cityObj.AddComponent<ProBuilderMesh>();
         // Compute the node positions corresponding to the highway bounds
         Vector3[] bounds = ComputeHighwayBounds(pos, HighwayWidth);
+        // Au lieu d'un seul long segment, découpe en sous-segments
+        Vector3[] subDivisions = ComputeSubDivisions(bounds);
         // Create a mesh from the polygon shape
-        ActionResult act = mesh.CreateShapeFromPolygon(bounds.ToList(), 0.01f, false);
+        ActionResult act = mesh.CreateShapeFromPolygon(subDivisions.ToList(), 0.01f, false);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         IsVisible = act.ToBool();
         // Add a mesh collider
@@ -247,7 +246,7 @@ public class Highway : CityObject
 
     private Vector3[] ComputeHighwayBounds(Vector3[] pos, float width)
     {
-        Vector3[] bounds = new Vector3[pos.Length * 2 + 1];
+        Vector3[] bounds = new Vector3[pos.Length * 2];
         for (int i = 0; i < pos.Length; i++)
         {
             Vector3 dir;
@@ -259,10 +258,28 @@ public class Highway : CityObject
                 dir = ((pos[i + 1] - pos[i]).normalized + (pos[i] - pos[i - 1]).normalized).normalized;
             Vector3 normal = new Vector3(-dir.z, 0, dir.x);
             bounds[i] = pos[i] + normal * width / 2f;
-            bounds[bounds.Length - 2 - i] = pos[i] - normal * width / 2f;
+            bounds[bounds.Length - 1 - i] = pos[i] - normal * width / 2f;
         }
-        bounds[bounds.Length - 1] = bounds[0];
         return bounds;
+    }
+
+    private Vector3[] ComputeSubDivisions(Vector3[] bounds, float maxSegmentLength = 50f)
+    {
+        List<Vector3> subDivisions = new List<Vector3>();
+        for (int i = 0; i < bounds.Length - 1; i++)
+        {
+            Vector3 start = bounds[i];
+            Vector3 end = bounds[i + 1];
+            float segmentLength = Vector3.Distance(start, end);
+            int numSubSegments = Mathf.CeilToInt(segmentLength / maxSegmentLength);
+            for (int j = 0; j < numSubSegments; j++)
+            {
+                float t = (float)j / numSubSegments;
+                subDivisions.Add(Vector3.Lerp(start, end, t));
+            }
+        }
+        subDivisions.Add(bounds[bounds.Length - 1]);
+        return subDivisions.ToArray();
     }
 
 }
