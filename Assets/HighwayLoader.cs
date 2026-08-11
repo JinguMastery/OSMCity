@@ -19,7 +19,7 @@ public class HighwayLoader : Loader
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        DefHighwayMat = Resources.Load<Material>("Materials/asphalt");
+        DefHighwayMat = Resources.Load<Material>("Materials/road1");
         Fields = GameObject.Find("/Loaders").GetComponent<HighwayLoaderFields>();
         allPath = Main.XmlPath + Fields.elementsFile;
         nodesPath = Main.XmlPath + Fields.nodesFile;

@@ -10,16 +10,34 @@ public class Highway : CityObject
 
     [Header("Highway attributes")]
     public string highwayType = "road";
+    public string crossingType = "uncontrolled";
+    public string footwayType = "sidewalk";
+    public string markings = "yes";
+    public string crossingMarkings = "zebra";
+    public string divider = "solid_line";
+
     [Tooltip("Width must be strictly positive")]
     [Min(0f)]
     [Delayed]
     public float highwayWidth = 3f;
-    [Tooltip("Width must be strictly positive")]
+    [Tooltip("Length must be strictly positive")]
     [Min(0f)]
     [Delayed]
     public float highwayLength = 3f;
+    [Tooltip("Number of lanes must be greater or equal to 1")]
+    [Min(1)]
+    [Delayed]
+    public int nLanes = 1;
+    [Tooltip("Width of lanes must be strictly positive")]
+    [Min(0f)]
+    [Delayed]
+    public float laneWidth = 1f; 
 
-    private float prevHighwayWidth = 3f, prevHighwayLength = 3f;
+    private float prevHighwayWidth = 3f, prevHighwayLength = 3f, prevLaneWidth = 1f;
+    private int prevNLanes = 1;
+    private ComputeBuffer pathBuffer, distanceBuffer;
+    private static MaterialPropertyBlock block;
+    private Vector3[] positions;
 
     public Material HighwayMaterial
     {
@@ -43,9 +61,11 @@ public class Highway : CityObject
             if (osmObj.Element.Tags.TryGetValue("width", out string strWidth))
             {
                 if (float.TryParse(strWidth, out float w))
+                {
                     highwayWidth = w;
+                }
             }
-            return highwayWidth * osmObj.Loader.Main.zMeterScale;
+            return highwayWidth;
         }
     }
 
@@ -55,21 +75,20 @@ public class Highway : CityObject
         {
             if (osmObj.Element.Type == OsmGeoType.Node)
             {
-                return highwayLength * osmObj.Loader.Main.xMeterScale;
+                return highwayLength;
             }
             else
             {
-                Vector3[] pos = GetNodePositions(osmObj.SubNodes);
-                if (pos != null && pos.Length > 1)
+                if (positions != null && positions.Length > 1)
                 {
                     float length = 0f;
-                    for (int i = 0; i < pos.Length - 1; i++)
+                    for (int i = 0; i < positions.Length - 1; i++)
                     {
-                        length += Vector3.Distance(pos[i], pos[i + 1]);
+                        length += Vector3.Distance(positions[i], positions[i + 1]);
                     }
                     highwayLength = length;
                 }
-                return highwayLength * osmObj.Loader.Main.xMeterScale;
+                return highwayLength;
             }
         }
     }
@@ -86,6 +105,100 @@ public class Highway : CityObject
         }
     }
 
+    public string Crossing
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("crossing", out string type))
+            {
+                crossingType = type;
+            }
+            return crossingType;
+        }
+    }
+
+    public string Footway
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("footway", out string type))
+            {
+                footwayType = type;
+            }
+            return footwayType;
+        }
+    }
+
+    public string Markings
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("lane_markings", out string laneMarkings))
+            {
+                markings = laneMarkings;
+            }
+            else if (osmObj.Element.Tags.TryGetValue("markings", out string markings))
+            {
+                this.markings = markings;
+            }
+            return markings;
+        }
+    }
+
+    public string CrossingMarkings
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("crossing:markings", out string markings))
+            {
+                crossingMarkings = markings;
+            }
+            return crossingMarkings;
+        }
+    }
+
+    public int NLanes
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("lanes", out string lanes))
+            {
+                if (int.TryParse(lanes, out int nLanes))
+                {
+                    this.nLanes = nLanes;
+                }
+            }
+            return nLanes;
+        }
+    }
+
+    public string Divider
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("divider", out string divider))
+            {
+                this.divider = divider;
+            }
+            return this.divider;
+        }
+    }
+
+    public float LaneWidth
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("width:lanes", out string width))
+            {
+                if (float.TryParse(width, out float laneWidth))
+                {
+                    this.laneWidth = laneWidth;
+                }
+            }
+            return laneWidth;
+        }
+    }
+
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
@@ -94,11 +207,81 @@ public class Highway : CityObject
         trueNodePositions = GetNodePositionsText();
         nodePositions = trueNodePositions;
 
+        _ = Markings; _ = Type; _ = Surface;
         // Add a material
-        if (Surface != null)
-            material = Resources.Load<Material>("Materials/" + surface);
-        if (HighwayMaterial == null)
-            material = HighwayLoader.DefHighwayMat;
+        if (surface != null)
+        {
+            switch (surface)
+            {
+                case "unpaved":
+                case "ground":
+                    material = Resources.Load<Material>("Materials/dirt");
+                    break;
+                case "paved":
+                case "pavers":
+                    material = Resources.Load<Material>("Materials/paving_stones");
+                    break;
+                case "compacted":
+                    material = Resources.Load<Material>("Materials/gravel");
+                    break;
+                case "paving_stones:lanes":
+                    surface = "paving_stones";
+                    break;
+                case "concrete:lanes":
+                    surface = "concrete";
+                    break;
+                case "concrete:plates":
+                    surface = "concrete_plates";
+                    break;
+                case "wood;planks":
+                    surface = "wood_plank";
+                    break;
+                default:
+                    break;
+            }
+            if (material == null)
+                material = Resources.Load<Material>("Materials/" + surface);
+        }
+        if (surface == "asphalt" || HighwayMaterial == null)
+        {
+            if (surface == "asphalt" && markings == "no") {
+                material = Resources.Load<Material>("Materials/asphalt");
+            }
+            else if (surface == "asphalt" && markings == "yes")
+            {
+                material = highwayType == "pedestrian" || highwayType == "crossing" ? Resources.Load<Material>("Materials/road2") : HighwayLoader.DefHighwayMat;
+            }
+            else
+            {
+                switch (highwayType)
+                {
+                    case "pedestrian":
+                    case "crossing":
+                        material = Resources.Load<Material>("Materials/road2");
+                        break;
+                    case "footway":
+                    case "track":
+                    case "service":
+                    case "bus_guideway":
+                    case "escape":
+                        material = Resources.Load<Material>("Materials/asphalt");
+                        break;
+                    case "motorway":
+                    case "trunk":
+                    case "primary":
+                    case "secondary":
+                    case "tertiary":
+                    case "unclassified":
+                    case "residential":
+                    case "living_street":
+                        material = HighwayLoader.DefHighwayMat;
+                        break;
+                    default:
+                        material = surface == "asphalt" ? HighwayLoader.DefHighwayMat : Resources.Load<Material>("Materials/dirt");
+                        break;
+                }
+            }
+        }
         prevMat = material;
         prevSurface = surface;
         geometry = PrimitiveType.Plane;
@@ -128,10 +311,14 @@ public class Highway : CityObject
         }
 
         IsMeshCreated = true;
+        prevNLanes = NLanes;
+        prevLaneWidth = LaneWidth;
+        prevHighwayWidth = HighwayWidth;
+        prevHighwayLength = HighwayLength;
         // initialisation des champs
-        _ = Length; _ = Width; _ = Type; _ = Amenity; _ = Source; _ = Elevation; _ = Surface;
+        _ = Length; _ = Width; _ = Amenity; _ = Source; _ = Elevation;
         // attributs relatifs aux routes
-        _ = HighwayWidth; _ = HighwayLength;
+        _ = Crossing; _ = Footway; _ = CrossingMarkings; _ = Divider;
     }
 
     // Update is called once per frame
@@ -142,6 +329,14 @@ public class Highway : CityObject
             highwayWidth = prevHighwayWidth;
         if (highwayLength <= 0)
             highwayLength = prevHighwayLength;
+        if (nLanes < 1)
+            nLanes = prevNLanes;
+        if (laneWidth <= 0)
+            laneWidth = prevLaneWidth;
+        if (width <= 0)
+            width = prevWidth;
+        if (length <= 0)
+            length = prevLength;
         if (nodePositions != trueNodePositions)
             nodePositions = trueNodePositions;
         if (miscellaneous != trueMiscellaneous)
@@ -179,6 +374,14 @@ public class Highway : CityObject
         }
     }
 
+    void OnDestroy()
+    {
+        pathBuffer?.Release();
+        distanceBuffer?.Release();
+        pathBuffer = null;
+        distanceBuffer = null;
+    }
+
     private void AddPrimitive(Node node)
     {
         Vector3? pos = GetNodePosition(node);
@@ -210,6 +413,7 @@ public class Highway : CityObject
 
     private void CreatePolygon(Vector3[] pos)
     {
+        positions = pos;
         cityObj = new GameObject
         {
             name = "ID = " + osmObj.Element.Id,
@@ -229,6 +433,31 @@ public class Highway : CityObject
         AddMeshCollider();
         // Add infos
         AddObjInfos();
+
+        if (material == HighwayLoader.DefHighwayMat)
+        {
+            MeshRenderer renderer = cityObj.GetComponent<MeshRenderer>();
+            // Create path buffer
+            pathBuffer = new ComputeBuffer(pos.Length, sizeof(float) * 3);
+            pathBuffer.SetData(pos);
+            // Create cumulative distances buffer
+            distanceBuffer = new ComputeBuffer(pos.Length, sizeof(float));
+            float[] cumDist = new float[pos.Length];
+            cumDist[0] = 0f;
+            for (int i = 1; i < pos.Length; i++)
+            {
+                cumDist[i] = cumDist[i - 1] + Vector3.Distance(pos[i - 1], pos[i]);
+            }
+            distanceBuffer.SetData(cumDist);
+            block ??= new MaterialPropertyBlock();
+            block.Clear();
+            block.SetBuffer("_PathPoints", pathBuffer);
+            block.SetBuffer("_CumulativeDistances", distanceBuffer);
+            block.SetInt("_PointCount", pos.Length);
+            block.SetFloat("_RoadWidth", HighwayWidth);
+            block.SetFloat("_RoadLength", cumDist[pos.Length - 1]);
+            renderer.SetPropertyBlock(block);
+        }
     }
 
     private void AddObjInfos()

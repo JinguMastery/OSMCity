@@ -59,8 +59,9 @@ public class Building : CityObject
     private bool prevIsWidth = true, prevUseMarker = true, prevUseControllerPos = false;
     private Color prevEdgeCol = Color.white, prevMarkerCol = Color.red, prevColor;
     private double prevTolCol;
-    private int prevNPixelsEdge = 20, pictureWidth, pictureHeight;
+    private int prevNFloors = 1, prevNPixelsEdge = 20, pictureWidth, pictureHeight;
     private Texture2D prevPicture;
+    private Vector3[] positions;
 
     //attributs cadastres
     public int NFloors
@@ -123,7 +124,7 @@ public class Building : CityObject
         }
     }
     
-    //attribut géométrique
+    //attributs géométriques
     public float Height
     {
         get
@@ -166,6 +167,50 @@ public class Building : CityObject
             else
             {
                 return GetHeight(predMethod);
+            }
+        }
+    }
+
+    public float LongestSide
+    {
+        get
+        {
+            if (positions != null && positions.Length > 2)
+            {
+                float length = 0;
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    float dist = Vector3.Distance(positions[i], positions[(i + 1) % positions.Length]);
+                    if (dist > length)
+                        length = dist;
+                }
+                return length;
+            }
+            else
+            {
+                return float.NaN;
+            }
+        }
+    }
+
+    public float ShortestSide
+    {
+        get
+        {
+            if (positions != null && positions.Length > 2)
+            {
+                float length = float.MaxValue;
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    float dist = Vector3.Distance(positions[i], positions[(i + 1) % positions.Length]);
+                    if (dist < length)
+                        length = dist;
+                }
+                return length;
+            }
+            else
+            {
+                return float.NaN;
             }
         }
     }
@@ -338,10 +383,11 @@ public class Building : CityObject
         IsMeshCreated = true;
         prev_height = height;
         prevNetInternalSurface = NetInternalSurface;
-        // initialisation des champs
-        _ = Length; _ = Width; _ = NFloors; _ = Type; _ = Age; _ = Amenity; _ = Source; _ = Elevation; _ = Surface;
+        prevNFloors = NFloors;
+        // initialisation des champs restants
+        _ = Length; _ = Width; _ = Amenity; _ = Source; _ = Elevation; _ = Surface;
         // attributs relatifs aux bâtiments
-        _ = HouseNumber; _ = PostCode; _ = Street; _ = City; _ = Country;
+        _ = Type; _ = Age; _ = HouseNumber; _ = PostCode; _ = Street; _ = City; _ = Country;
     }
 
     // Update is called once per frame
@@ -350,8 +396,10 @@ public class Building : CityObject
         //teste la validité des entrées
         if (height <= 0)
             height = prev_height;
-        if (netInternalSurface != prevNetInternalSurface)
+        if (netInternalSurface <= 0)
             netInternalSurface = prevNetInternalSurface;
+        if (nFloors < 1)
+            nFloors = prevNFloors;
         if (width <= 0)
             width = prevWidth;
         if (length <= 0)
@@ -711,6 +759,7 @@ public class Building : CityObject
 
     private void CreatePolygon(Vector3[] pos)
     {
+        positions = pos;
         cityObj = new GameObject
         {
             name = "ID = " + osmObj.Element.Id,
