@@ -62,6 +62,8 @@ public class Building : CityObject
     private int prevNFloors = 1, prevNPixelsEdge = 20, pictureWidth, pictureHeight;
     private Texture2D prevPicture;
     private Vector3[] positions;
+    private List<float> mergedSideLengths;
+    private List<Vector3> mergedSideVectors;
 
     //attributs cadastres
     public int NFloors
@@ -175,21 +177,8 @@ public class Building : CityObject
     {
         get
         {
-            if (positions != null && positions.Length > 2)
-            {
-                float length = 0;
-                for (int i = 0; i < positions.Length; i++)
-                {
-                    float dist = Vector3.Distance(positions[i], positions[(i + 1) % positions.Length]);
-                    if (dist > length)
-                        length = dist;
-                }
-                return length;
-            }
-            else
-            {
-                return float.NaN;
-            }
+            // Find longest merged side
+            return mergedSideLengths.Count > 0 ? mergedSideLengths.Max() : float.NaN;
         }
     }
 
@@ -197,21 +186,105 @@ public class Building : CityObject
     {
         get
         {
-            if (positions != null && positions.Length > 2)
+            // Find shortest merged side
+            return mergedSideLengths.Count > 0 ? mergedSideLengths.Min() : float.NaN;
+        }
+    }
+
+    public bool IsParallelogram
+    {
+        get
+        {
+            if (positions != null && positions.Length >= 4)
             {
-                float length = float.MaxValue;
+                // Find corner vertices (skip intermediate ones that are collinear)
+                List<Vector3> cornerPositions = new List<Vector3>();
+                float collinearTolerance = 1f; // tolerance for detecting collinear points
+
                 for (int i = 0; i < positions.Length; i++)
                 {
-                    float dist = Vector3.Distance(positions[i], positions[(i + 1) % positions.Length]);
-                    if (dist < length)
-                        length = dist;
+                    int prevIdx = (i - 1 + positions.Length) % positions.Length;
+                    int nextIdx = (i + 1) % positions.Length;
+
+                    Vector3 edgeBefore = positions[i] - positions[prevIdx];
+                    Vector3 edgeAfter = positions[nextIdx] - positions[i];
+
+                    float angle = Vector3.Angle(edgeBefore, edgeAfter);
+
+                    // If angle ≈ 180°, vertex is intermediate/collinear - skip it
+                    if (Mathf.Abs(angle - 180f) > collinearTolerance)
+                    {
+                        cornerPositions.Add(positions[i]);
+                    }
                 }
-                return length;
+
+                // We should have exactly 4 corners for a parallelogram
+                if (cornerPositions.Count != 4)
+                {
+                    return false;
+                }
+
+                // Calculate angles between the 4 corners
+                Vector3 v1 = cornerPositions[1] - cornerPositions[0];
+                Vector3 v2 = cornerPositions[2] - cornerPositions[1];
+                Vector3 v3 = cornerPositions[3] - cornerPositions[2];
+                Vector3 v4 = cornerPositions[0] - cornerPositions[3];  // Close the polygon
+
+                // For a parallelogram, opposite sides must be parallel
+                // Parallel = dot product of normalized vectors ≈ ±1
+                float dot13 = Mathf.Abs(Vector3.Dot(v1.normalized, v3.normalized));  // Opposite sides 1 & 3
+                float dot24 = Mathf.Abs(Vector3.Dot(v2.normalized, v4.normalized));  // Opposite sides 2 & 4
+
+                float parallelTolerance = 0.99f; // dot product threshold for parallel sides
+
+                bool isParallelogram =
+                    dot13 > parallelTolerance &&  // Sides 1 and 3 are parallel
+                    dot24 > parallelTolerance;    // Sides 2 and 4 are parallel
+
+                return isParallelogram;
             }
-            else
+            return false;
+        }
+    }
+
+    public float LengthAngle
+    {
+        get
+        {
+            if (mergedSideLengths.Count > 0 && mergedSideVectors.Count > 0)
             {
-                return float.NaN;
+                int ind = mergedSideLengths.IndexOf(LongestSide);
+                Vector3 longestSideVec = ind >= 0 && ind < mergedSideVectors.Count ? mergedSideVectors[ind] : Vector3.zero;
+
+                if (longestSideVec == Vector3.zero)
+                {
+                    return 0.0f;
+                }
+
+                float angle = Mathf.Atan2(longestSideVec.x, longestSideVec.z);
+                if (angle < 0)
+                    angle += Mathf.PI * 2;  // Normalize to [0, 2π]
+                if (angle >= Mathf.PI)
+                    angle -= Mathf.PI;
+                return angle * Mathf.Rad2Deg;
             }
+            return 0.0f;
+        }
+    }
+
+    public float WidthAngle
+    {
+        get
+        {
+            if (mergedSideLengths.Count > 0 && mergedSideVectors.Count > 0)
+            {
+                float angle = LengthAngle + 90f;  // Perpendicular to the length angle
+                // Normalize to [0, 180) to match LengthAngle range
+                if (angle >= 180f)
+                    angle -= 180f;
+                return angle;
+            }
+            return 90f;
         }
     }
 
@@ -375,6 +448,8 @@ public class Building : CityObject
                 AddPrimitive((Node)osmObj.Element);
             }
         }
+
+        CalculateMergedSides();
         if (osmObj.Element.Tags.ContainsKey("roof:shape"))
             CreateRoof();
         else
@@ -502,6 +577,75 @@ public class Building : CityObject
             }
         }
         prev_height = height;
+    }
+
+    private void CalculateMergedSides()
+    {
+        mergedSideLengths = new List<float>();
+        mergedSideVectors = new List<Vector3>();
+        if (positions != null && positions.Length > 2)
+        {
+            float currentSideLength = 0f;
+            Vector3 currentSideDirection = Vector3.zero;
+            Vector3 currentSideVector = Vector3.zero;
+
+            // Loop through all edges including the closing edge (wrapping around)
+            for (int i = 0; i < positions.Length; i++)
+            {
+                int nextIdx = (i + 1) % positions.Length; // Wraps to 0 at the end
+                Vector3 edgeVec = positions[nextIdx] - positions[i];
+                float edgeDist = edgeVec.magnitude;
+
+                if (i == 0)
+                {
+                    // First edge - initialize
+                    currentSideLength = edgeDist;
+                    currentSideDirection = edgeVec.normalized;
+                    currentSideVector = edgeVec;
+                }
+                else
+                {
+                    // Check if parallel to current side (same direction)
+                    float dotProduct = Vector3.Dot(edgeVec.normalized, currentSideDirection);
+
+                    if (dotProduct > 0.99f) // Higher tolerance for parallel edges
+                    {
+                        currentSideLength += edgeDist;
+                        currentSideVector += edgeVec;
+                    }
+                    else
+                    {
+                        // Direction changed, save current merged side and start new one
+                        mergedSideLengths.Add(currentSideLength);
+                        mergedSideVectors.Add(currentSideVector);
+
+                        currentSideLength = edgeDist;
+                        currentSideDirection = edgeVec.normalized;
+                        currentSideVector = edgeVec;
+                    }
+                }
+            }
+
+            // After loop: check if last accumulated side merges with the first side
+            if (mergedSideLengths.Count > 0 && mergedSideVectors.Count > 0)
+            {
+                Vector3 firstEdgeDirection = (positions[1] - positions[0]).normalized;
+                float dotProductLastToFirst = Vector3.Dot(currentSideDirection, firstEdgeDirection);
+
+                if (dotProductLastToFirst > 0.99f)
+                {
+                    // Last side and first side are parallel - merge them
+                    mergedSideLengths[0] += currentSideLength;
+                    mergedSideVectors[0] += currentSideVector;
+                }
+                else
+                {
+                    // Last side is separate
+                    mergedSideLengths.Add(currentSideLength);
+                    mergedSideVectors.Add(currentSideVector);
+                }
+            }
+        }
     }
 
     private float GetHeight(PredictionMethod method)

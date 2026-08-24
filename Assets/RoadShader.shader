@@ -134,8 +134,9 @@ Shader "Unlit/RoadShader"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // sample the texture
-                fixed4 col = tex2D(_MainTex, i.uv);
+                // Plain tex2D lets the GPU auto-pick a mip level from screen-space UV derivatives, but our UV
+                // is reconstructed per-vertex via a branching "closest path segment" search
+                fixed4 col = tex2Dlod(_MainTex, float4(i.uv, 0, 0));
                 // apply fog
                 UNITY_APPLY_FOG(i.fogCoord, col);
                 return col;

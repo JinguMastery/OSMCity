@@ -109,10 +109,7 @@ public class Roof : MonoBehaviour
         {
             if (building.OsmObject.Element.Tags.TryGetValue("roof:orientation", out string orientation))
             {
-                if (orientation == "across" || orientation == "accross" || orientation == "acr")
-                    isAcross = true;
-                else
-                    isAcross = false;
+                isAcross = orientation == "across" || orientation == "accross" || orientation == "acr";
             }
             return isAcross;
         }
@@ -163,10 +160,7 @@ public class Roof : MonoBehaviour
     {
         get
         {
-            if (isAcross)
-                return Mathf.Max(building.Length, building.Width);
-            else
-                return Mathf.Min(building.Length, building.Width);
+            return isAcross ? Mathf.Max(building.Length, building.Width) : Mathf.Min(building.Length, building.Width);
         }
     }
 
@@ -176,10 +170,29 @@ public class Roof : MonoBehaviour
     {
         get
         {
-            if (isAcross)
-                return Mathf.Min(building.Length, building.Width);
-            else
-                return Mathf.Max(building.Length, building.Width);
+            return isAcross ? Mathf.Min(building.Length, building.Width) : Mathf.Max(building.Length, building.Width);
+        }
+    }
+
+    public float SideWidth
+    {
+        get
+        {
+            if (!building.IsParallelogram)
+                return Width;
+            float width = isAcross ? building.LongestSide : building.ShortestSide;
+            return width != float.NaN ? width : Width;
+        }
+    }
+
+    public float SideLength
+    {
+        get
+        {
+            if (!building.IsParallelogram)
+                return Length;
+            float length = isAcross ? building.ShortestSide : building.LongestSide;
+            return length != float.NaN ? length : Length;
         }
     }
 
@@ -258,15 +271,16 @@ public class Roof : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        float width = SideWidth, length = SideLength;
         //teste la validité des entrées
         if (height <= 0 || height >= building.Height)
             height = prev_height;
         if (hipHeight <= 0 || hipHeight >= height)
             hipHeight = prevHipHeight;
-        if (hipLength < 0 || hipLength > Length / 2)
+        if (hipLength < 0 || hipLength > length / 2)
             hipLength = prevHipLength;
-        maxMidLength = Length * Mathf.Sqrt(Length * Length + 4 * height * height) / (8 * height);
-        maxMidWidth = Width * Mathf.Sqrt(Width * Width + 4 * height * height) / (8 * height);
+        maxMidLength = length * Mathf.Sqrt(length * length + 4 * height * height) / (8 * height);
+        maxMidWidth = width * Mathf.Sqrt(width * width + 4 * height * height) / (8 * height);
         if (midLength <= 0 || midLength > maxMidLength)
             midLength = prevMidLength;
         if (midWidth <= 0 || midWidth > maxMidWidth)
@@ -353,32 +367,33 @@ public class Roof : MonoBehaviour
     }
 
     private void UpdateShape() {
+        float width = SideWidth, length = SideLength;
         switch (shape)
         {
             case RoofShape.Gabled:
                 hipLength = 0; prevHipLength = 0;
                 goto case RoofShape.Hipped;
             case RoofShape.Pyramidal:
-                hipLength = Length / 2; prevHipLength = hipLength;
+                hipLength = SideLength / 2; prevHipLength = hipLength;
                 goto case RoofShape.Hipped;
             case RoofShape.Hipped:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToHipped(hipLength);
                 break;
             case RoofShape.Half_Hipped:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToHalfHipped(hipLength, hipHeight);
                 break;
             case RoofShape.Side_Hipped:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToSideHipped(hipLength);
                 break;
             case RoofShape.Side_Half_Hipped:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToSideHalfHipped(hipLength, hipHeight);
                 break;
             case RoofShape.Hipped_And_Gabled:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToHippedAndGabled(hipLength, hipHeight, midWidth);
                 break;
             case RoofShape.Gabled_Height_Moved:
@@ -391,11 +406,11 @@ public class Roof : MonoBehaviour
                 ToDoubleSaltbox(hipLength, hipHeight);
                 break;
             case RoofShape.Gambrel:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToGambrel(hipHeight, midWidth);
                 break;
             case RoofShape.Mansard:
-                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+                mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(width, height, length));
                 ToMansard(hipLength, hipHeight, midWidth, midLength);
                 break;
             case RoofShape.Skillion:
@@ -407,11 +422,11 @@ public class Roof : MonoBehaviour
                 mesh.DuplicateAndFlip(mesh.faces.ToArray());
                 break;
             case RoofShape.Round:
-                height = Width / 2; prevHeight = Height;
+                height = width / 2; prevHeight = Height;
                 ToRound(10);
                 break;
             case RoofShape.Dome:
-                height = Width / 2; prevHeight = Height;
+                height = width / 2; prevHeight = Height;
                 ToDome(5);
                 break;
             case RoofShape.Cone:
@@ -427,14 +442,14 @@ public class Roof : MonoBehaviour
     private float GetHeight(float angle)
     {
         if (angle != 0f || angle != 90f || angle != 180f || angle != 270f)
-            return Mathf.Abs(Mathf.Tan(angle * Mathf.Deg2Rad)) * Width / 2;
+            return Mathf.Abs(Mathf.Tan(angle * Mathf.Deg2Rad)) * SideWidth / 2;
         else
             return height * building.OsmObject.Loader.Main.yMeterScale * NLevels;
     }
 
     private void ToCone(int subDiv)
     {
-        mesh = ShapeGenerator.GenerateCone(PivotLocation.Center, Width / 2, height, subDiv);
+        mesh = ShapeGenerator.GenerateCone(PivotLocation.Center, SideWidth / 2, height, subDiv);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         mesh.ToMesh();
         mesh.Refresh();
@@ -461,7 +476,7 @@ public class Roof : MonoBehaviour
 
     private void ToRound(float radialCutsMult)
     {
-        mesh = ShapeGenerator.GenerateArch(PivotLocation.Center, 180, height, height, Length, (int)(height * radialCutsMult), false, true, true, true, true);
+        mesh = ShapeGenerator.GenerateArch(PivotLocation.Center, 180, height, height, SideLength, (int)(height * radialCutsMult), false, true, true, true, true);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         var archFaces = from face in mesh.faces
                         where face.distinctIndexes.Count == 4
@@ -535,7 +550,7 @@ public class Roof : MonoBehaviour
 
     private void ToSaltbox(float hipL, float hipH)
     {
-        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(SideWidth, height, SideLength));
         if (hipH > 0)
         {
             CreateMidVertices(0, height / 2, false);
@@ -558,7 +573,7 @@ public class Roof : MonoBehaviour
             return;
         foreach (SharedVertex sv in ridgeVertices)
         {
-            mesh.TranslateVertices(sv, new Vector3(hipL - Width / 2, 0, 0));
+            mesh.TranslateVertices(sv, new Vector3(hipL - SideWidth / 2, 0, 0));
         }
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         mesh.ToMesh();
@@ -567,7 +582,7 @@ public class Roof : MonoBehaviour
 
     private void ToDoubleSaltbox(float hipL, float hipH)
     {
-        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(SideWidth, height, SideLength));
         if (hipH > 0)
         {
             CreateMidVertices(0, height / 2);
@@ -594,18 +609,18 @@ public class Roof : MonoBehaviour
             return;
         foreach (SharedVertex sv in ridgeVertices)
         {
-            mesh.TranslateVertices(sv, new Vector3(hipL - Width / 2, 0, 0));
+            mesh.TranslateVertices(sv, new Vector3(hipL - SideWidth / 2, 0, 0));
         }
         var midVerticesRight = from sv in mesh.sharedVertices
                                where mesh.positions[sv[0]].y == 0 && mesh.positions[sv[0]].x > 0
                                select sv;
         if (midVerticesRight.Count() != 4)
             return;
-        if (hipL < Width / 2)
+        if (hipL < SideWidth / 2)
         {
             foreach (SharedVertex sv in midVerticesRight)
             {
-                mesh.TranslateVertices(sv, new Vector3(-mesh.positions[sv[0]].x + Width / 2 - hipL, height / 2, 0));
+                mesh.TranslateVertices(sv, new Vector3(-mesh.positions[sv[0]].x + SideWidth / 2 - hipL, height / 2, 0));
             }
         }
         else
@@ -643,7 +658,7 @@ public class Roof : MonoBehaviour
 
     private void ToGabledHeightMoved(float hipH)
     {
-        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(Width, height, Length));
+        mesh = ShapeGenerator.GeneratePrism(PivotLocation.Center, new Vector3(SideWidth, height, SideLength));
         if (hipH > 0)
         {
             CreateMidVertices(0, height / 2, true);
@@ -682,7 +697,7 @@ public class Roof : MonoBehaviour
         List<Vector3> newPos = new List<Vector3>();
         foreach (Vector3 v in baseVertices)
         {
-            newPos.Add(new Vector3(v.x - hipH * Width / (2 * height) * Mathf.Sign(v.x), v.y + hipH, v.z - hipH * hipL / height * Mathf.Sign(v.z)));
+            newPos.Add(new Vector3(v.x - hipH * SideWidth / (2 * height) * Mathf.Sign(v.x), v.y + hipH, v.z - hipH * hipL / height * Mathf.Sign(v.z)));
         }
         List<Face> faces = new List<Face>(mesh.faces);
         for (int i = 0; i < mesh.faceCount; i++)
@@ -727,7 +742,7 @@ public class Roof : MonoBehaviour
         List<Vector3> newPos = new List<Vector3>();
         foreach (Vector3 v in baseVertices)
         {
-            newPos.Add(new Vector3(v.x - hipH * Width / (2 * height) * Mathf.Sign(v.x), v.y + hipH, v.z - hipH * hipL / height * Mathf.Sign(v.z)));
+            newPos.Add(new Vector3(v.x - hipH * SideWidth / (2 * height) * Mathf.Sign(v.x), v.y + hipH, v.z - hipH * hipL / height * Mathf.Sign(v.z)));
         }
         List<Face> faces = new List<Face>(mesh.faces);
         for (int i = 0; i < mesh.faceCount; i++)
@@ -763,14 +778,15 @@ public class Roof : MonoBehaviour
 
     private void ToSkillion()
     {
+        float width = SideWidth, length = SideLength;
         Vector3[] vertices = new Vector3[6]
         {
             new Vector3(0, 0, 0),
-            new Vector3(Width, 0, 0),
+            new Vector3(width, 0, 0),
             new Vector3(0, height, 0),
-            new Vector3(Width, 0, Length),
-            new Vector3(0, height, Length),
-            new Vector3(0, 0, Length)
+            new Vector3(width, 0, length),
+            new Vector3(0, height, length),
+            new Vector3(0, 0, length)
         };
 
         Face[] tris = new Face[]
@@ -798,7 +814,7 @@ public class Roof : MonoBehaviour
         };
 
         mesh = ProBuilderMesh.Create(vertices, tris);
-        mesh.SetPivot(new Vector3(Width / 2, height / 2, Length / 2));
+        mesh.SetPivot(new Vector3(width / 2, height / 2, length / 2));
         mesh.DuplicateAndFlip(tris);
         mesh.ToMesh();
         mesh.Refresh();
@@ -830,19 +846,20 @@ public class Roof : MonoBehaviour
                           where mesh.positions[sv[0]].y > -height / 2 && mesh.positions[sv[0]].y < height / 2
                           select sv;
 
-        float wNorm = Mathf.Sqrt(4 * height * height + Width * Width), lNorm = Mathf.Sqrt(height * height + hipL * hipL);
+        float width = SideWidth, length = SideLength;
+        float wNorm = Mathf.Sqrt(4 * height * height + width * width), lNorm = Mathf.Sqrt(height * height + hipL * hipL);
         foreach (var midVertex in midVertices)
         {
             float sx = Mathf.Sign(mesh.positions[midVertex[0]].x), sz = Mathf.Sign(mesh.positions[midVertex[0]].z);
-            Vector3 midVect = new Vector3(2 * height * midW / wNorm * sx, midW * Width / wNorm + midL * hipL / lNorm, midL * height / lNorm * sz);
+            Vector3 midVect = new Vector3(2 * height * midW / wNorm * sx, midW * width / wNorm + midL * hipL / lNorm, midL * height / lNorm * sz);
             mesh.TranslateVertices(midVertex, midVect);
             float x = mesh.positions[midVertex[0]].x, y = mesh.positions[midVertex[0]].y, z = mesh.positions[midVertex[0]].z;
-            if (x < -Width / 2 || x > Width / 2)
-                x = x < -Width / 2 ? -Width / 2 : Width / 2;
+            if (x < -width / 2 || x > width / 2)
+                x = x < -width / 2 ? -width / 2 : width / 2;
             if (y < -height / 2 || y > height / 2)
                 y = y < -height / 2 ? -height / 2 : height / 2;
-            if (z < -Length / 2 || z > Length / 2)
-                z = z < -Length / 2 ? -Length / 2 : Length / 2;
+            if (z < -length / 2 || z > length / 2)
+                z = z < -length / 2 ? -length / 2 : length / 2;
             mesh.SetSharedVertexPosition(mesh.sharedVertices.IndexOf(midVertex), new Vector3(x, y, z));
         }
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
@@ -883,12 +900,21 @@ public class Roof : MonoBehaviour
             pos.y = building.Height > height ? building.Height - height / 2f : building.Height + height / 2f;
         mesh.transform.position = pos;
         // Update the mesh rotation
-        float preAngle;
-        if (shape != RoofShape.Flat && shape != RoofShape.Dome && Length == building.Length)
-            preAngle = 90;
+
+        if (building.IsParallelogram)
+        {
+            float roofAngle = isAcross ? building.WidthAngle : building.LengthAngle;
+            mesh.transform.rotation = Quaternion.Euler(0, roofAngle, 0);
+        }
         else
-            preAngle = 0;
-        mesh.transform.rotation = Quaternion.Euler(0, preAngle + direction, 0);
+        {
+            float preAngle;
+            if (shape != RoofShape.Flat && shape != RoofShape.Dome && Length == building.Length)
+                preAngle = 90;
+            else
+                preAngle = 0;
+            mesh.transform.rotation = Quaternion.Euler(0, preAngle + direction, 0);
+        }
     }
 
     private void UpdateMaterial()
