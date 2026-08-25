@@ -706,6 +706,28 @@ public class Highway : CityObject
         return trimmed;
     }
 
+    //inserts intermediate points along any segment longer than maxSegmentLength, so BuildRibbonMesh never
+    //produces a single quad edge long enough to trip PhysX's large-triangle mesh collider warning. closed
+    //also subdivides the wraparound segment back from the last point to pos[0], and re-appends the closing
+    //duplicate point, matching pos's own closed-ring convention (pos[0] == pos[pos.Length-1]).
+    private Vector3[] SubdivideLongSegments(Vector3[] pos, bool closed, float maxSegmentLength = 50f)
+    {
+        int n = closed ? pos.Length - 1 : pos.Length;
+        int segCount = closed ? n : n - 1;
+        List<Vector3> result = new List<Vector3>();
+        for (int i = 0; i < segCount; i++)
+        {
+            Vector3 start = pos[i];
+            Vector3 end = pos[(i + 1) % n];
+            result.Add(start);
+            int extra = Mathf.FloorToInt(Vector3.Distance(start, end) / maxSegmentLength);
+            for (int j = 1; j <= extra; j++)
+                result.Add(Vector3.Lerp(start, end, (float)j / (extra + 1)));
+        }
+        result.Add(closed ? result[0] : pos[n - 1]);
+        return result.ToArray();
+    }
+
     //builds a ribbon as a strip of independent convex quads instead of one big polygon, avoiding
     //CreateShapeFromPolygon's ear-clipping (which fills concave/annulus shapes solid, and can locally
     //self-intersect at sharp turns - visible as tonal/gradient banding - on a long or complex path).
@@ -713,6 +735,9 @@ public class Highway : CityObject
     //duplicate final point is dropped); open builds one fewer quad than points, with one-sided end directions.
     private ProBuilderMesh BuildRibbonMesh(Vector3[] pos, float width, bool closed)
     {
+        // A long straight stretch between two widely-spaced OSM nodes would otherwise become a single quad
+        // edge long enough to trip PhysX's large-triangle mesh collider warning
+        pos = SubdivideLongSegments(pos, closed);
         int n = closed ? pos.Length - 1 : pos.Length;
         Vector3[] outer = new Vector3[n];
         Vector3[] inner = new Vector3[n];

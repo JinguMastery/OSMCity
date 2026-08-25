@@ -26,9 +26,7 @@ public class Building : CityObject
     public string buildingType = "yes";
     public string age;
     public Color color = Color.clear;
-    [Tooltip("House number must be positive")]
-    [Min(0)]
-    public int houseNumber;
+    public string houseNumber;
     [Tooltip("Post code must be positive")]
     [Min(0)]
     public int postCode;
@@ -289,20 +287,13 @@ public class Building : CityObject
     }
 
     //attributs qualitatifs relatifs aux bâtiments
-    public int HouseNumber
+    public string HouseNumber
     {
         get
         {
             if (osmObj.Element.Tags.TryGetValue("addr:housenumber", out string number))
             {
-                try
-                {
-                    houseNumber = int.Parse(number, CultureInfo.InvariantCulture);
-                }
-                catch (Exception exc)
-                {
-                    Debug.LogWarning(exc.Message + number);
-                }
+                houseNumber = number;
             }
             return houseNumber;
         }
