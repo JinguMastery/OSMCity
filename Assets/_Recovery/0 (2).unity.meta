@@ -1,10 +1,7 @@
 fileFormatVersion: 2
-guid: 303ee90f55d88654a84cab7a74eda955
-labels:
-- sign
-NativeFormatImporter:
+guid: bf6965ab1161c084282817acd9d7bda2
+DefaultImporter:
   externalObjects: {}
-  mainObjectFileID: 0
   userData: 
   assetBundleName: 
   assetBundleVariant: 

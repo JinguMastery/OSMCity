@@ -1,7 +1,9 @@
 fileFormatVersion: 2
-guid: 303ee90f55d88654a84cab7a74eda955
+guid: 139e334bc86f2bb468ee8db25d7b8d70
 labels:
-- sign
+- lamp
+- light
+- trafic
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 0

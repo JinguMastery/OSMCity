@@ -81,13 +81,8 @@ public abstract class OsmObject
     {
         List<Node> nodes = new List<Node>();
         foreach (var nodeId in way.Nodes) {
-            var filtered = from node in Loader.SubNodes
-                           where node.Id == nodeId
-                           select node;
-            if (filtered.Any())
-            {
-                nodes.Add(filtered.First());
-            }
+            if (Loader.TryGetSubNode(nodeId, out Node node))
+                nodes.Add(node);
         }
         return nodes;
     }
@@ -99,36 +94,27 @@ public abstract class OsmObject
         {
             if (member.Type == OsmGeoType.Node)
             {
-                var filtered = from node in Loader.SubNodes
-                               where node.Id == member.Id
-                               select node;
-                if (filtered.Any())
+                if (Loader.TryGetSubNode(member.Id, out Node node))
                 {
-                    nodes.Add(filtered.First());
-                    directSubNodes.Add(filtered.First());
+                    nodes.Add(node);
+                    directSubNodes.Add(node);
                 }
             }
             else
             {
                 if (member.Type == OsmGeoType.Way)
                 {
-                    var filtered = from way in Loader.SubWays
-                                   where way.Id == member.Id
-                                   select way;
-                    if (filtered.Any())
+                    if (Loader.TryGetSubWay(member.Id, out Way way))
                     {
-                        List<Node> subNodes = GetSubNodes(filtered.First());
+                        List<Node> subNodes = GetSubNodes(way);
                         nodes.AddRange(subNodes);
                     }
                 }
                 else
                 {
-                    var filtered = from subRelation in Loader.SubRelations
-                                    where subRelation.Id == member.Id
-                                    select subRelation;
-                    if (filtered.Any())
+                    if (Loader.TryGetSubRelation(member.Id, out Relation subRelation))
                     {
-                        List<Node> subNodes = GetSubNodes(filtered.First());
+                        List<Node> subNodes = GetSubNodes(subRelation);
                         nodes.AddRange(subNodes);
                     }
                 }
@@ -144,24 +130,16 @@ public abstract class OsmObject
         {
             if (member.Type == OsmGeoType.Way)
             {
-                var filtered = from way in Loader.SubWays
-                               where way.Id == member.Id
-                               select way;
-                if (filtered.Any())
-                {
-                    ways.Add(filtered.First());
-                }
+                if (Loader.TryGetSubWay(member.Id, out Way way))
+                    ways.Add(way);
             }
             else
             {
                 if (member.Type == OsmGeoType.Relation)
                 {
-                    var filtered = from subRelation in Loader.SubRelations
-                                   where subRelation.Id == member.Id
-                                   select subRelation;
-                    if (filtered.Any())
+                    if (Loader.TryGetSubRelation(member.Id, out Relation subRelation))
                     {
-                        List<Way> subWays = GetSubWays(filtered.First());
+                        List<Way> subWays = GetSubWays(subRelation);
                         ways.AddRange(subWays);
                     }
                 }
@@ -177,13 +155,10 @@ public abstract class OsmObject
         {
             if (member.Type == OsmGeoType.Relation)
             {
-                var filtered = from subRelation in Loader.SubRelations
-                               where subRelation.Id == member.Id
-                               select subRelation;
-                if (filtered.Any())
+                if (Loader.TryGetSubRelation(member.Id, out Relation subRelation))
                 {
-                    relations.Add(filtered.First());
-                    List<Relation> subRelations = GetSubRelations(filtered.First());
+                    relations.Add(subRelation);
+                    List<Relation> subRelations = GetSubRelations(subRelation);
                     relations.AddRange(subRelations);
                 }
             }

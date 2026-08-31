@@ -4,6 +4,8 @@ using UnityEngine;
 using UnityEngine.ProBuilder;
 using UnityEngine.ProBuilder.MeshOperations;
 using UnityEngine.UI;
+using UnityEngine.UIElements;
+using static UnityEditor.FilePathAttribute;
 
 public class Highway : CityObject
 {
@@ -15,6 +17,7 @@ public class Highway : CityObject
     public string markings = "yes";
     public string crossingMarkings = "zebra";
     public string divider = "solid_line";
+    public string trafficSignalsDirection = "forward";
 
     [Tooltip("Width must be strictly positive")]
     [Min(0f)]
@@ -56,6 +59,25 @@ public class Highway : CityObject
     //vehicle road and stays at tier 0
     private const int DefaultHighwayTypeRank = 0;
     private float yOffset;
+    //every "post" prop from this asset pack (LampPost_A, StreetSign_G, ...) shares the same source FBX and
+    //is authored with its pole running along local Z; each one's root is baked with this exact rotation so
+    //the pole stands up along world Y (confirmed identical in both prefabs' own m_LocalRotation). Instantiate()
+    //overrides that baked root rotation, so it has to be re-applied explicitly and composed with the yaw
+    //below, or the post ends up lying on its side. If a future prop from a different pack needs a different
+    //fix, give it its own constant rather than assuming this one still applies.
+    private static readonly Quaternion PostUprightCorrection = Quaternion.Euler(-90f, 0f, 0f);
+    //every OSM highway=X value that gets its own prefab instead of a generated road-mesh primitive, along
+    //with the Hierarchy-search-friendly name prefix used for it (see SpawnEmbeddedPointProps and the
+    //Hierarchy-window search box). Add a new point prop type here - not by adding another switch case -
+    //and it's automatically picked up by both the isolated-node path below and the embedded-in-way scan.
+    private static readonly Dictionary<string, (string prefabPath, string namePrefix)> PointPropByType = new Dictionary<string, (string, string)>
+    {
+        { "traffic_signals", ("Prefabs/LampPost_A", "TrafficSignal ") },
+        { "bus_stop", ("Prefabs/StreetSign_G", "BusStop ") },
+        { "give_way", ("Prefabs/StreetSign_F", "GiveWay ") },
+        { "stop", ("Prefabs/StreetSign_C", "Stop ") },
+        { "street_lamp", ("Prefabs/LampPost_J", "StreetLamp ") }
+    };
 
     public Material HighwayMaterial
     {
@@ -198,6 +220,21 @@ public class Highway : CityObject
         }
     }
 
+    //orientation of a traffic_signals node relative to its way's own digitisation order ("forward"/"backward").
+    //traffic_signals:direction is the specific OSM key for this; the generic direction key is used as a fallback
+    //when it isn't set
+    public string TrafficSignalsDirection
+    {
+        get
+        {
+            if (osmObj.Element.Tags.TryGetValue("traffic_signals:direction", out string dir) || osmObj.Element.Tags.TryGetValue("direction", out dir))
+            {
+                trafficSignalsDirection = dir;
+            }
+            return trafficSignalsDirection;
+        }
+    }
+
     public float LaneWidth
     {
         get
@@ -273,7 +310,7 @@ public class Highway : CityObject
             }
             else if (surface == "asphalt" && markings == "yes")
             {
-                material = highwayType == "pedestrian" || highwayType == "crossing" ? Resources.Load<Material>("Materials/road2") : HighwayLoader.DefHighwayMat;
+                material = highwayType == "pedestrian" || highwayType == "crossing" ? Resources.Load<Material>("Materials/crosswalk") : HighwayLoader.DefHighwayMat;
             }
             else
             {
@@ -281,7 +318,7 @@ public class Highway : CityObject
                 {
                     case "pedestrian":
                     case "crossing":
-                        material = Resources.Load<Material>("Materials/road2");
+                        material = Resources.Load<Material>("Materials/crosswalk");
                         break;
                     case "footway":
                     case "track":
@@ -338,8 +375,12 @@ public class Highway : CityObject
                     else if (pos.Length > 1)
                         CreatePolygon(pos);
                     else if (pos.Length == 1)
-                        AddPrimitive(pos[0]);
+                        AddPrimitive(pos[0], osmObj.SubNodes[0]);
                 }
+                // a point-prop node (traffic_signals, bus_stop, ...) shared with this way's own node list
+                // never gets its own Highway/OsmObject (HighwayLoader only turns unvisited top-level nodes
+                // into one) - it has to be found and spawned here instead, alongside the way's own road mesh
+                SpawnEmbeddedPointProps();
             }
             else
             {
@@ -355,7 +396,7 @@ public class Highway : CityObject
         // initialisation des champs
         _ = Length; _ = Width; _ = Amenity; _ = Source; _ = Elevation;
         // attributs relatifs aux routes
-        _ = Crossing; _ = Footway; _ = CrossingMarkings; _ = Divider;
+        _ = Crossing; _ = Footway; _ = CrossingMarkings; _ = Divider; _ = TrafficSignalsDirection;
     }
 
     // Update is called once per frame
@@ -435,19 +476,327 @@ public class Highway : CityObject
     {
         Vector3? pos = GetNodePosition(node);
         if (pos.HasValue)
-            AddPrimitive(pos.Value);
+            AddPrimitive(pos.Value, node);
     }
 
-    private void AddPrimitive(Vector3 pos)
+    private void AddPrimitive(Vector3 pos, Node node = null)
     {
-        cityObj = GameObject.CreatePrimitive(geometry);
-        cityObj.name = "ID = " + osmObj.Element.Id;
-        cityObj.hideFlags = HideFlags.NotEditable;
-        cityObj.transform.position = new Vector3(pos.x, pos.y + yOffset, pos.z);
-        cityObj.transform.localScale = new Vector3(HighwayLength, 0.01f, HighwayWidth);
-        IsVisible = true;
-        // Add infos
-        AddObjInfos();
+        bool isPointProp = PointPropByType.TryGetValue(highwayType, out var propInfo);
+        if (isPointProp)
+        {
+            GameObject prefab = Resources.Load<GameObject>(propInfo.prefabPath);
+            // this node comes from the else-branch below (osmObj.Element itself, an entry of Loader.Nodes)
+            // or the pos.Length == 1 degenerate way case above - either way it isn't a node shared with a
+            // normal multi-node way, so there's no way-order tangent to compute here; face/clear whichever
+            // nearby road segment is actually closest instead
+            Quaternion rotation = Quaternion.identity;
+            (Vector3 a, Vector3 b, long wayId, float halfWidth)? nearest = null;
+            if (node != null)
+            {
+                nearest = FindNearestSegment(pos);
+                Vector3 dir = nearest.HasValue ? DirectionAwayFromSegment(pos, nearest.Value.a, nearest.Value.b) : Vector3.forward;
+                dir = ApplyPrefabFacingQuirk(highwayType, dir);
+                rotation = Quaternion.LookRotation(dir, Vector3.up) * PostUprightCorrection;
+            }
+            cityObj = Instantiate(prefab, pos, rotation);
+            if (nearest.HasValue)
+            {
+                // the node itself isn't part of any way, but it stands beside whichever road segment is
+                // nearest (found above) - if a DIFFERENT, crossing road also passes close enough to overlap
+                // it here, slide it along that nearest road's own tangent, clear of the crossing one, same
+                // as an embedded node at a junction (see ResolveCrossWayOverlap)
+                Vector3 tangent = (nearest.Value.b - nearest.Value.a).normalized;
+                cityObj.transform.position = ResolveCrossWayOverlap(cityObj, pos, tangent, nearest.Value.wayId);
+            }
+            // prefixed (per type) so every instance of a point prop - however many, whatever their OSM id - can
+            // be found at once with a plain Hierarchy window search, instead of having to know each id up front
+            cityObj.name = propInfo.namePrefix + "ID = " + osmObj.Element.Id;
+            SetHideFlagsRecursive(cityObj, HideFlags.NotEditable);
+            IsVisible = true;
+            // Add infos - not the road-surface material (already correct on the prefab), and no debug Text
+            // component either (it would force this Transform into a RectTransform, wrecking the rotation)
+            AddObjInfos(applyMaterial: false, addDebugText: false);
+            Debug.Log("Added point prop as primitive : " + highwayType);
+        }
+        else
+        {
+            Debug.Log("Highway type not found in PointPropByType: " + highwayType);
+        }
+    }
+
+    //applies flags to root and every descendant - a prefab like LampPost_A carries its own child parts
+    //(light fixtures), which don't inherit the root's hideFlags on their own
+    private static void SetHideFlagsRecursive(GameObject root, HideFlags flags)
+    {
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            t.gameObject.hideFlags = flags;
+    }
+
+    //scans this way's own nodes (already resolved in osmObj.SubNodes) for any tagged with a highway value
+    //in PointPropByType (traffic_signals, bus_stop, ...) and spawns the matching prop for each - this is the
+    //only place such a node ever gets instantiated, since HighwayLoader never creates a separate
+    //Highway/OsmObject for a node shared with a way
+    private void SpawnEmbeddedPointProps()
+    {
+        HighwayLoader loader = (HighwayLoader)osmObj.Loader;
+        foreach (Node subNode in osmObj.SubNodes)
+        {
+            if (subNode.Tags.TryGetValue("highway", out string subType) && PointPropByType.TryGetValue(subType, out var propInfo))
+            {
+                // a node sitting exactly at a junction is shared by every way that meets there, and each of
+                // those ways runs this same scan - only the first one to claim this id spawns it
+                if (!loader.TryMarkPointFeatureSpawned(subNode.Id.Value))
+                    continue;
+                Vector3? subPos = GetNodePosition(subNode);
+                if (subPos.HasValue)
+                {
+                    Vector3? wayDir = ComputeWayDirectionAtNode(osmObj.SubNodes, subNode.Id.Value, subPos.Value);
+                    bool backward = IsBackwardDirection(subNode);
+                    Quaternion rotation = BuildPostRotation(subType, wayDir, backward);
+                    SpawnPointProp(subNode, subPos.Value, wayDir, backward, osmObj.Element.Id ?? -1, rotation, propInfo.prefabPath, propInfo.namePrefix);
+                }
+            }
+            else if (subNode.Tags.ContainsKey("highway"))
+            {
+                Debug.Log("No point prop for highway type: " + subType);
+            }
+        }
+    }
+
+    //centerlinePos is the raw node position (still on the road's centerline); wayDir/backward pick the
+    //border side (see PerpendicularToRoad) and ownWayId is this node's own way, excluded from the cross-way
+    //overlap check. The border offset, the post's own mesh half-extent, AND the cross-way clearance push all
+    //move the post along one of only two axes (across its own road, or along its own road) - computing the
+    //final candidate position FIRST and resolving overlap against THAT (rather than resolving overlap, then
+    //separately nudging out by the mesh's own half-extent afterwards) matters: an offset applied after the
+    //overlap check can walk the post right back into whatever crossing road the check just cleared it from
+    private void SpawnPointProp(Node node, Vector3 centerlinePos, Vector3? wayDir, bool backward, long ownWayId, Quaternion rotation, string prefabPath, string namePrefix)
+    {
+        GameObject prefab = Resources.Load<GameObject>(prefabPath);
+        GameObject propObj = Instantiate(prefab, centerlinePos, rotation);
+        if (wayDir.HasValue)
+        {
+            Vector3 perp = PerpendicularToRoad(wayDir.Value, backward);
+            float meshHalfExtent = HalfExtentAlongDirection(propObj, perp);
+            Vector3 borderPos = centerlinePos + perp * (HighwayWidth / 2f + meshHalfExtent);
+            propObj.transform.position = ResolveCrossWayOverlap(propObj, borderPos, wayDir, ownWayId);
+        }
+        propObj.name = namePrefix + "ID = " + node.Id;
+        if (osmObj.Loader.Main.hideMeshInHierarchy)
+            SetHideFlagsRecursive(propObj, HideFlags.HideInHierarchy);
+        else
+        {
+            SetHideFlagsRecursive(propObj, HideFlags.NotEditable);
+            propObj.transform.SetParent(((HighwayLoader)osmObj.Loader).HighwayMeshes.transform);
+        }
+        Debug.Log("Added point prop as way prefab : " + namePrefix);
+    }
+
+    //every one of these posts stands at the roadside facing across the road, not along it - so its facing
+    //direction is the road tangent rotated 90 degrees around the vertical axis, not the tangent itself.
+    //TrafficSignalsDirection (falling back to the generic "direction" tag for props other than traffic
+    //signals - see IsBackwardDirection) - "forward", the default, or "backward" - picks which of the two
+    //perpendiculars: forward keeps the post on the right-hand side of the road relative to the way's own
+    //digitisation direction (real-world convention for a post facing traffic travelling that way); backward
+    //mirrors it to the opposite side/facing, for a post facing oncoming traffic
+    private Quaternion BuildPostRotation(string propType, Vector3? wayDir, bool backward)
+    {
+        Vector3 dir = PerpendicularToRoad(wayDir ?? Vector3.forward, backward);
+        dir = ApplyPrefabFacingQuirk(propType, dir);
+        return Quaternion.LookRotation(dir, Vector3.up) * PostUprightCorrection;
+    }
+
+    //every prop in PointPropByType except street_lamp is modelled so that, once PostUprightCorrection has
+    //stood its pole up, the mesh's own visible face ends up aligned with local Y - which LookRotation(dir)
+    //sends to world -dir (see PerpendicularToRoad's comment), so passing the across-the-road direction as
+    //dir makes that face point at the road. LampPost_J (street_lamp) is built differently: its "Spotlight"
+    //child sits at a large local X offset with near-zero Y (confirmed in the prefab itself) - i.e. its arm
+    //bends out along local X, not Y, which LookRotation sends to world Cross(up, dir) instead of -dir - a
+    //quarter turn off from every other prop in the pack. Rotating dir itself by the same 90 degrees before
+    //LookRotation compensates, so the same "dir = across the road" input still ends up lighting the road
+    //instead of running along it
+    private static Vector3 ApplyPrefabFacingQuirk(string propType, Vector3 dir)
+    {
+        return propType == "street_lamp" ? Vector3.Cross(Vector3.up, dir) : dir;
+    }
+
+    //a post stands on the side of the road that matches the side of the road ITS TRAFFIC drives on - not
+    //the side relative to the post's own facing direction. A post facing dir controls traffic moving toward
+    //it, i.e. travelling in -dir, so its side is Cross(up, -dir), the mirror image of Cross(up, dir).
+    //backward flips which of dir/-dir is being faced, which in turn flips which side this resolves to -
+    //confirmed against several traffic-signal nodes in the Liechtenstein dataset: nodes tagged
+    //traffic_signals:direction=backward matched this convention, forward/untagged nodes needed the mirror
+    private static Vector3 PerpendicularToRoad(Vector3 dir, bool backward)
+    {
+        Vector3 right = Vector3.Cross(Vector3.up, dir);
+        return backward ? right : -right;
+    }
+
+    //half of this instantiated prop's own world-space extent along dir - the standard support-distance
+    //formula for an axis-aligned box (Renderer.bounds) projected onto an arbitrary direction. Used to push a
+    //post that's already sitting exactly on the road border out by its own thickness, so its near face
+    //touches the border instead of its center - which would leave half the mesh buried in the road
+    private static float HalfExtentAlongDirection(GameObject go, Vector3 dir)
+    {
+        Bounds bounds = default;
+        bool hasBounds = false;
+        foreach (Renderer renderer in go.GetComponentsInChildren<Renderer>())
+        {
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+                bounds.Encapsulate(renderer.bounds);
+        }
+        if (!hasBounds)
+            return 0f;
+        Vector3 extents = bounds.extents;
+        return extents.x * Mathf.Abs(dir.x) + extents.y * Mathf.Abs(dir.y) + extents.z * Mathf.Abs(dir.z);
+    }
+
+    //a node placed exactly at a multi-way junction is claimed and spawned by only the first way that reaches
+    //it (see TryMarkPointFeatureSpawned), so its position/rotation always come from that one way's own
+    //tangent - but pushing the post sideways onto its own road's border (SpawnPointProp) can still land it
+    //inside a DIFFERENT way's road surface if that other way also passes through (or very near) the same
+    //junction. When that happens, this slides the post back along its own way's tangent - away from
+    //whichever direction increases clearance - until it's just clear of the other road's edge, ending up at
+    //the corner of the intersection rather than buried in the crossing road.
+    //a real intersection often has more than one crossing road converging on the same point, so clearing one
+    //can walk the post straight into another - this re-checks every nearby different-way segment against the
+    //post's current (possibly already-moved) position and keeps pushing until none of them overlap any more,
+    //rather than resolving each conflict once and assuming that settles it.
+    //propObj must already be instantiated (its rotation fixed) so its own mesh half-extent toward each
+    //crossing segment can be measured - clearing just the post's pivot point still leaves half its own mesh
+    //poking into the crossing road's surface, the same problem the border-offset mesh push (SpawnPointProp)
+    //solves for the post's own road
+    private Vector3 ResolveCrossWayOverlap(GameObject propObj, Vector3 pos, Vector3? wayDir, long ownWayId)
+    {
+        if (!wayDir.HasValue)
+            return pos;
+        HighwayLoader loader = (HighwayLoader)osmObj.Loader;
+        Vector3 dir = wayDir.Value;
+        const int maxIterations = 8;
+        for (int iteration = 0; iteration < maxIterations; iteration++)
+        {
+            bool overlapped = false;
+            foreach (var (a, b, wayId, halfWidth) in loader.GetNearbySegments(pos))
+            {
+                if (wayId == ownWayId)
+                    continue;
+                Vector3 ab = b - a;
+                float lenSqr = ab.sqrMagnitude;
+                if (lenSqr <= 0f)
+                    continue;
+                float t = Mathf.Clamp01(Vector3.Dot(pos - a, ab) / lenSqr);
+                Vector3 toSegment = (a + ab * t) - pos;
+                float dist = toSegment.magnitude;
+                Vector3 towardSegment = dist > 0.0001f ? toSegment / dist : dir;
+                float meshExtent = HalfExtentAlongDirection(propObj, towardSegment);
+                float requiredClearance = halfWidth + meshExtent;
+                if (dist >= requiredClearance)
+                    continue;
+                overlapped = true;
+                float clearance = requiredClearance - dist + HighwayWidth * 0.1f;
+                Vector3 forwardCandidate = pos + dir * clearance;
+                Vector3 backwardCandidate = pos - dir * clearance;
+                float distForward = DistancePointToSegment(forwardCandidate, a, b);
+                float distBackward = DistancePointToSegment(backwardCandidate, a, b);
+                pos = distForward >= distBackward ? forwardCandidate : backwardCandidate;
+            }
+            if (!overlapped)
+                break;
+        }
+        return pos;
+    }
+
+    private static float DistancePointToSegment(Vector3 p, Vector3 a, Vector3 b)
+    {
+        Vector3 ab = b - a;
+        float lenSqr = ab.sqrMagnitude;
+        if (lenSqr <= 0f)
+            return Vector3.Distance(p, a);
+        float t = Mathf.Clamp01(Vector3.Dot(p - a, ab) / lenSqr);
+        return Vector3.Distance(p, a + ab * t);
+    }
+
+    private bool IsBackwardDirection(Node node)
+    {
+        if (!node.Tags.TryGetValue("traffic_signals:direction", out string dir))
+            node.Tags.TryGetValue("direction", out dir);
+        return dir != null && dir.Equals("backward", System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    //tangent of the way at nodeId, averaged from its immediate neighbors (same convention as the interior-point
+    //direction used by BuildRibbonMesh); falls back to a one-sided direction at either end of the way.
+    //wayNodes is expected to be a way's own resolved node list (in the same order as its Way.Nodes id list),
+    //so the neighbor at index-1/index+1 is found directly by position, with no separate id-based lookup needed
+    private Vector3? ComputeWayDirectionAtNode(Node[] wayNodes, long nodeId, Vector3 nodePos)
+    {
+        int index = System.Array.FindIndex(wayNodes, n => n.Id == nodeId);
+        if (index < 0)
+            return null;
+        Vector3? prevPos = index > 0 ? GetNodePosition(wayNodes[index - 1]) : null;
+        Vector3? nextPos = index < wayNodes.Length - 1 ? GetNodePosition(wayNodes[index + 1]) : null;
+        if (prevPos.HasValue && nextPos.HasValue)
+            return ((nextPos.Value - nodePos).normalized + (nodePos - prevPos.Value).normalized).normalized;
+        if (nextPos.HasValue)
+            return (nextPos.Value - nodePos).normalized;
+        if (prevPos.HasValue)
+            return (nodePos - prevPos.Value).normalized;
+        return null;
+    }
+
+    //whichever segment, across every way in the loader, passes nearest to pos - used when a point-prop node
+    //is its own standalone point rather than a node shared with a road way. HighwayLoader.GetNearbySegments
+    //does the heavy lifting via a precomputed spatial grid, so this only ever checks segments already known
+    //to be within HighwayLoader.MaxPostToWayDistance's neighborhood, not every segment in the whole loader
+    private (Vector3 a, Vector3 b, long wayId, float halfWidth)? FindNearestSegment(Vector3 pos)
+    {
+        float bestDistSqr = HighwayLoader.MaxPostToWayDistance * HighwayLoader.MaxPostToWayDistance;
+        (Vector3, Vector3, long, float)? best = null;
+        foreach (var segment in ((HighwayLoader)osmObj.Loader).GetNearbySegments(pos))
+        {
+            var (a, b, _, _) = segment;
+            Vector3 ab = b - a;
+            float lenSqr = ab.sqrMagnitude;
+            if (lenSqr <= 0f)
+                continue;
+            float t = Mathf.Clamp01(Vector3.Dot(pos - a, ab) / lenSqr);
+            float distSqr = (pos - (a + ab * t)).sqrMagnitude;
+            if (distSqr < bestDistSqr)
+            {
+                bestDistSqr = distSqr;
+                best = segment;
+            }
+        }
+        return best;
+    }
+
+    //direction from the closest point of segment a-b out to pos, ACROSS the road - the same "outward, away
+    //from the road" convention BuildPostRotation/PerpendicularToRoad use for an embedded node (see
+    //PerpendicularToRoad's comment: the mesh's own visual front ends up facing back along -dir, i.e. toward
+    //the road), so an isolated post built from this direction faces/lights the road the same way an
+    //embedded one does
+    private static Vector3 DirectionAwayFromSegment(Vector3 pos, Vector3 a, Vector3 b)
+    {
+        Vector3 ab = b - a;
+        float lenSqr = ab.sqrMagnitude;
+        if (lenSqr <= 0f)
+            return Vector3.forward;
+        Vector3 tangent = ab / Mathf.Sqrt(lenSqr);
+        float t = Mathf.Clamp01(Vector3.Dot(pos - a, ab) / lenSqr);
+        Vector3 away = pos - (a + ab * t);
+        // when t lands strictly between the segment's two endpoints, "away" is already perpendicular to the
+        // segment by construction (that's what makes it the closest point). But when pos is beyond either
+        // end of this particular segment, t clamps to 0 or 1 and "away" points at that endpoint instead - a
+        // vector that can run mostly ALONG the road (e.g. pos sits ahead of/behind a short segment near a
+        // junction, not really beside it) rather than across it. The post must always face across the road,
+        // never along it, so the component of "away" running along the road's own tangent is discarded here
+        // unconditionally - a no-op for the ordinary interior-point case, the actual fix for the clamped one
+        Vector3 lateral = away - Vector3.Dot(away, tangent) * tangent;
+        return lateral.sqrMagnitude > 0.0001f ? lateral.normalized : Vector3.Cross(Vector3.up, tangent);
     }
 
     private void UpdatePrimitive(Node node)
@@ -596,15 +945,30 @@ public class Highway : CityObject
         AddObjInfos();
     }
 
-    private void AddObjInfos()
+    //applyMaterial is false for a point-prop prefab (LampPost_A, StreetSign_G, ...): its MeshRenderer already
+    //has the correct material baked in (e.g. the bus stop's icon-on-blue-background region of the shared
+    //Atlas), and UpdateMaterial() would stomp it with the road-surface material (Materials.road2/dirt/...)
+    //resolved earlier in Start() for this node's own surface/highway tags - unrelated to the prop's own look.
+    //addDebugText is false for the same prefabs, for a more fundamental reason: UnityEngine.UI.Text requires
+    //a RectTransform, so AddComponent<Text>() on an object that only has a plain Transform makes Unity
+    //silently REPLACE that Transform with a RectTransform - which clobbers the rotation/position we just
+    //spent all this effort computing (this is what was actually behind "every point prop has the same
+    //rotation", not a wayDir/distance bug), and is also why HideFlags.NotEditable (set on cityObj just before
+    //this runs) produces a "can't rename" warning - the Transform-to-RectTransform swap needs to rename
+    //something internally and that's blocked by the flag
+    private void AddObjInfos(bool applyMaterial = true, bool addDebugText = true)
     {
         // Update the texture and the color
-        UpdateMaterial();
-        // Add a canvas and text fields for node positions and miscellanous infos
-        Text t = cityObj.AddComponent<Text>();
-        t.text = GetNodePositionsText();
+        if (applyMaterial)
+            UpdateMaterial();
+        if (addDebugText)
+        {
+            // Add a canvas and text fields for node positions and miscellanous infos
+            Text t = cityObj.AddComponent<Text>();
+            t.text = GetNodePositionsText();
+        }
         if (osmObj.Loader.Main.hideMeshInHierarchy)
-            cityObj.hideFlags = HideFlags.HideInHierarchy;
+            SetHideFlagsRecursive(cityObj, HideFlags.HideInHierarchy);
         else
             cityObj.transform.SetParent(((HighwayLoader)osmObj.Loader).HighwayMeshes.transform);
     }

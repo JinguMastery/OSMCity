@@ -25,6 +25,15 @@ public abstract class Loader : MonoBehaviour
     private readonly List<Relation> subRelations = new List<Relation>(); //Initialize List of OSM subrelations
     private Boundaries? bounds;
 
+    //id -> element indexes over subNodes/subWays/subRelations, built lazily (once) on first lookup instead
+    //of OsmObject doing a fresh LINQ linear scan - over a freshly-.ToArray()'d copy, on top of that - for
+    //every single node/way/relation reference it needs to resolve. For a way with a dozen node refs this
+    //barely matters, but resolving thousands of ways this way is O(refs * total elements) and was measured
+    //to dominate scene load time on a real dataset (billions of comparisons for a country-sized extract)
+    private Dictionary<long, Node> subNodesById;
+    private Dictionary<long, Way> subWaysById;
+    private Dictionary<long, Relation> subRelationsById;
+
     public Main Main { get; set; }
     public bool FinishedLoading { get; protected set; }
 
@@ -71,6 +80,35 @@ public abstract class Loader : MonoBehaviour
             bounds = b;
             return b;
         }
+    }
+
+    public bool TryGetSubNode(long id, out Node node)
+    {
+        subNodesById ??= BuildIndex(subNodes);
+        return subNodesById.TryGetValue(id, out node);
+    }
+
+    public bool TryGetSubWay(long id, out Way way)
+    {
+        subWaysById ??= BuildIndex(subWays);
+        return subWaysById.TryGetValue(id, out way);
+    }
+
+    public bool TryGetSubRelation(long id, out Relation relation)
+    {
+        subRelationsById ??= BuildIndex(subRelations);
+        return subRelationsById.TryGetValue(id, out relation);
+    }
+
+    private static Dictionary<long, T> BuildIndex<T>(List<T> elements) where T : OsmElement
+    {
+        Dictionary<long, T> index = new Dictionary<long, T>();
+        foreach (T element in elements)
+        {
+            if (element.Id.HasValue && !index.ContainsKey(element.Id.Value))
+                index[element.Id.Value] = element;
+        }
+        return index;
     }
 
     protected void LoadXML()

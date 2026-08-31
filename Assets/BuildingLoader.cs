@@ -12,7 +12,9 @@ public class BuildingLoader : Loader
 
     private readonly List<Building> buildingsTraining = new List<Building>();
     private readonly List<Building> buildingsTest = new List<Building>();
-    private readonly List<Node> visitedNodes = new List<Node>();
+    //ids only (not full Node objects) since this is only ever used as a membership check, not to look
+    //anything up - a HashSet<long> makes that check O(1) instead of a LINQ linear scan per top-level node
+    private readonly HashSet<long> visitedNodes = new HashSet<long>();
     private bool isTrainingDone, isTestDone;
     private string heightsPath;
     private GameObject buildingDetails;
@@ -137,6 +139,15 @@ public class BuildingLoader : Loader
         }
     }
 
+    private void MarkVisited(Node[] nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Id.HasValue)
+                visitedNodes.Add(node.Id.Value);
+        }
+    }
+
     private void CreateOsmObjs()
     {
         if (Fields.reverseOrder)
@@ -145,14 +156,11 @@ public class BuildingLoader : Loader
             {
                 OsmBuilding osmObj = new OsmBuilding(Ways[i], this);
                 osmObjs.Add(osmObj);
-                visitedNodes.AddRange(osmObj.SubNodes);
+                MarkVisited(osmObj.SubNodes);
             }
             for (int i = Nodes.Length - 1; i >= (Fields.nBuildingNodes < 0 ? 0 : Math.Max(Nodes.Length - Fields.nBuildingNodes, 0)); i--)
             {
-                var found = from node in visitedNodes
-                            where node.Id == Nodes[i].Id
-                            select node;
-                if (!found.Any())
+                if (!Nodes[i].Id.HasValue || !visitedNodes.Contains(Nodes[i].Id.Value))
                     osmObjs.Add(new OsmBuilding(Nodes[i], this));
             }
         }
@@ -162,14 +170,11 @@ public class BuildingLoader : Loader
             {
                 OsmBuilding osmObj = new OsmBuilding(Ways[i], this);
                 osmObjs.Add(osmObj);
-                visitedNodes.AddRange(osmObj.SubNodes);
+                MarkVisited(osmObj.SubNodes);
             }
             for (int i = 0; i < (Fields.nBuildingNodes < 0 ? Nodes.Length : Math.Min(Fields.nBuildingNodes, Nodes.Length)); i++)
             {
-                var found = from node in visitedNodes
-                            where node.Id == Nodes[i].Id
-                            select node;
-                if (!found.Any())
+                if (!Nodes[i].Id.HasValue || !visitedNodes.Contains(Nodes[i].Id.Value))
                     osmObjs.Add(new OsmBuilding(Nodes[i], this));
             }
         }
