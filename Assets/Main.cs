@@ -258,7 +258,10 @@ public class Main : MonoBehaviour
 
     private Vector3 GetEarthCoords(double lat, double lon)
     {
-        if (lat == double.NaN || lon == double.NaN)
+        // lat == double.NaN is always false (NaN compares unequal to everything, including itself, under
+        // IEEE 754) - this guard never actually caught a NaN input, letting it reach
+        // Mathf.RoundToInt(NaN) below, which produces int.MinValue and crashes GetRange with a negative count
+        if (double.IsNaN(lat) || double.IsNaN(lon))
             return Vector3.zero;
         int intLat = Mathf.RoundToInt(Mathf.Abs((float)lat));
         double avgDist = LatDegDistsDict.Values.ToList().GetRange(0, intLat + 1).Average();

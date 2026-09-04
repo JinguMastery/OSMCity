@@ -1,12 +1,7 @@
 fileFormatVersion: 2
 guid: 16a251bc98c097b43aceb918b1ab21dd
-labels:
-- road
-- tile
-- set
-NativeFormatImporter:
+PrefabImporter:
   externalObjects: {}
-  mainObjectFileID: 0
   userData: 
   assetBundleName: 
   assetBundleVariant: 

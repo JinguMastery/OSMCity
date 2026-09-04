@@ -4,6 +4,12 @@ using System.Collections.Generic;
 public abstract class OsmElement
 {
 
+    //shared by every element with no tags of its own (the overwhelming majority of plain geometry vertices
+    //in a large extract) instead of Loader allocating a fresh empty Dictionary for each one - safe only
+    //because nothing in this codebase ever mutates a Tags dictionary's contents after construction (only
+    //reads via TryGetValue/ContainsKey), so every untagged element can safely point at the same instance
+    public static readonly Dictionary<string, string> EmptyTags = new Dictionary<string, string>();
+
     protected OsmElement(long id, OsmGeoType type, long changeSetId, bool visible, DateTime timeStamp, int version, long userId, string userName, Dictionary<string, string> tags)
     {
         Id = id; Type = type; ChangeSetId = changeSetId; Visible = visible; TimeStamp = timeStamp; Version = version; UserId = userId; UserName = userName; Tags = tags;

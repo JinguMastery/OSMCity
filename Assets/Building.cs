@@ -62,6 +62,8 @@ public class Building : CityObject
     private Vector3[] positions;
     private List<float> mergedSideLengths;
     private List<Vector3> mergedSideVectors;
+    private bool isUnderground;
+    public bool IsUnderground => isUnderground;
 
     //attributs cadastres
     public int NFloors
@@ -72,7 +74,9 @@ public class Building : CityObject
             {
                 try
                 {
-                    nFloors = int.Parse(nLevels, CultureInfo.InvariantCulture);
+                    int n = int.Parse(nLevels, CultureInfo.InvariantCulture);
+                    isUnderground = n < 0;
+                    nFloors = Mathf.Max(1, n);
                 }
                 catch (Exception exc)
                 {
@@ -386,13 +390,15 @@ public class Building : CityObject
     // Start is called before the first frame update
     void Start()
     {
+        // set once, not touched again: children of this GameObject (the wall mesh, the roof mesh)
+        // are parented with worldPositionStays, so this must stay fixed after they're attached
+        transform.position = Barycenter ?? Vector3.zero;
+
         trueMiscellaneous = GetMiscellaneous();
         miscellaneous = trueMiscellaneous;
         trueNodePositions = GetNodePositionsText();
         nodePositions = trueNodePositions;
-        picture = Resources.Load<Texture2D>("Pictures/" + Name);
-        if (picture == null)
-            picture = Resources.Load<Texture2D>("Pictures/" + osmObj.Element.Id);
+        picture = Resources.Load<Texture2D>("Pictures/" + Name) ?? Resources.Load<Texture2D>("Pictures/" + osmObj.Element.Id);
         prevPicture = picture;
         predMethod = ((BuildingLoader)osmObj.Loader).Fields.predMethod;
 
@@ -440,11 +446,16 @@ public class Building : CityObject
             }
         }
 
-        CalculateMergedSides();
-        if (osmObj.Element.Tags.ContainsKey("roof:shape"))
-            CreateRoof();
-        else
-            UpdateRoofMaterial(BuildingLoader.DefRoofMat);
+        if (cityObj != null && IsVisible)
+        {
+            if (isUnderground)
+                cityObj.transform.position -= new Vector3(0, prev_height, 0);
+            CalculateMergedSides();
+            if (osmObj.Element.Tags.ContainsKey("roof:shape"))
+                CreateRoof();
+            else
+                UpdateRoofMaterial(BuildingLoader.DefRoofMat);
+        }
 
         IsMeshCreated = true;
         prev_height = height;
@@ -478,9 +489,6 @@ public class Building : CityObject
             nodePositions = trueNodePositions;
         if (miscellaneous != trueMiscellaneous)
             miscellaneous = trueMiscellaneous;
-
-        //met à jour la position
-        transform.position = Barycenter ?? Vector3.zero;
 
         //charge les données sur les hauteurs si besoin
         if (predMethod == PredictionMethod.Text && ((BuildingLoader)osmObj.Loader).Heights.Count == 0)
@@ -904,6 +912,11 @@ public class Building : CityObject
         mesh = cityObj.AddComponent<ProBuilderMesh>();
         // Create a mesh from the polygon shape with the real or predicted height
         ActionResult act = mesh.CreateShapeFromPolygon(pos.ToList(), prev_height, false);
+        // ProBuilder's own triangulator can fail on a highly regular footprint (e.g. a round tower
+        // approximated by many evenly-spaced points) even though the polygon itself is perfectly valid -
+        // see CreateFanShapeFromPolygon's comment. Retry with a centroid fan instead of leaving an empty mesh.
+        if (!act.ToBool())
+            act = CreateFanShapeFromPolygon(mesh, pos, prev_height, false);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         IsVisible = act.ToBool();
         // Add a mesh collider
@@ -923,8 +936,7 @@ public class Building : CityObject
         t.text = GetNodePositionsText();
         if (osmObj.Loader.Main.hideMeshInHierarchy)
             cityObj.hideFlags = HideFlags.HideInHierarchy;
-        else
-            cityObj.transform.SetParent(((BuildingLoader)osmObj.Loader).BuildingMeshes.transform);
+        cityObj.transform.SetParent(transform);
     }
     
     private void CreateMultiPolygon(Relation relation)

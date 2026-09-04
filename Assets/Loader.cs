@@ -33,6 +33,9 @@ public abstract class Loader : MonoBehaviour
     private Dictionary<long, Node> subNodesById;
     private Dictionary<long, Way> subWaysById;
     private Dictionary<long, Relation> subRelationsById;
+    //same idea as the dictionaries above, but for CityObject -> its own index in cityObjs, so GetNeighbors
+    //doesn't have to ToList().IndexOf() (an O(n) copy-then-scan) every time it's called
+    private Dictionary<CityObject, int> cityObjIndices;
 
     public Main Main { get; set; }
     public bool FinishedLoading { get; protected set; }
@@ -48,7 +51,7 @@ public abstract class Loader : MonoBehaviour
     public Relation[] SubRelations => subRelations.ToArray();
     public OsmObject[] OsmObjects => osmObjs.ToArray();
     public OsmObject[] OsmTagObjects => osmTagObjs.ToArray();
-    public CityObject[] CityObjects => cityObjs.ToArray();
+    public IReadOnlyList<CityObject> CityObjects => cityObjs;
 
 
     public Boundaries Bounds
@@ -76,10 +79,65 @@ public abstract class Loader : MonoBehaviour
                     lons.Add((double)node.Longitude);
                 }
             }
-            b = new Boundaries(lats.Min(), lats.Max(), lons.Min(), lons.Max());
+            if (lats.Count == 0)
+            {
+                // no node with coordinates was ever loaded - most commonly because the configured XML
+                // files are missing (see LoadXML's WarnIfPathConfigured for the actual root-cause warning).
+                // lats.Min()/Max() would throw InvalidOperationException ("Sequence contains no elements")
+                // here, crashing the whole loader over what should just be an empty scene - fall back to a
+                // zero-sized region at (0,0) instead
+                Debug.LogWarning("Loader.Bounds: no nodes with coordinates were loaded - falling back to a zero-sized region at (0,0). Check that this loader's XML files exist and aren't empty.");
+                b = new Boundaries(0, 0, 0, 0);
+            }
+            else
+            {
+                b = new Boundaries(lats.Min(), lats.Max(), lons.Min(), lons.Max());
+            }
             bounds = b;
             return b;
         }
+    }
+
+    //O(1) (amortized): looks up obj's index in cityObjs via a lazily-built cache instead of scanning for it.
+    //The cache self-heals if cityObjs grows after it was built (still mid-load, or a stale count) by rebuilding
+    //from scratch, so this stays correct to call at any point, not just after loading fully completes.
+    public int IndexOf(CityObject obj)
+    {
+        if (cityObjIndices == null || cityObjIndices.Count != cityObjs.Count)
+        {
+            cityObjIndices = new Dictionary<CityObject, int>(cityObjs.Count);
+            for (int i = 0; i < cityObjs.Count; i++)
+                cityObjIndices[cityObjs[i]] = i;
+        }
+        return cityObjIndices.TryGetValue(obj, out int index) ? index : -1;
+    }
+
+    //everything freed here is only ever needed during CreateOsmObjs's resolution pass (BuildingLoader/
+    //HighwayLoader call this right after that pass finishes): every OsmHighway/OsmBuilding resolves and
+    //caches its own SubNodes/SubWays/SubRelations exactly once, synchronously, in its constructor (see
+    //OsmObject.SetSubElements) - nothing reads Loader's own raw lists or subNodesById/subWaysById/
+    //subRelationsById again afterward. On a country-sized extract (e.g. Luxembourg's ~123MB of raw highway
+    //node XML, ~865MB for buildings) these lists, plus subNodesById's own full duplicate index of every
+    //node reference, hold a lot of memory for no further purpose.
+    //Nodes/SubNodes are the one exception: Main reads Bounds later, once FinishedLoading is observed, and
+    //Bounds' own getter reads Nodes/SubNodes - forcing it to evaluate (and cache) here first means that by
+    //the time Main asks for it, the cached value already exists and the underlying lists can be freed too.
+    protected void ReleaseIntermediateLoadState()
+    {
+        _ = Bounds;
+
+        elements.Clear(); elements.TrimExcess();
+        tagElements.Clear(); tagElements.TrimExcess();
+        nodes.Clear(); nodes.TrimExcess();
+        ways.Clear(); ways.TrimExcess();
+        relations.Clear(); relations.TrimExcess();
+        subNodes.Clear(); subNodes.TrimExcess();
+        subWays.Clear(); subWays.TrimExcess();
+        subRelations.Clear(); subRelations.TrimExcess();
+
+        subNodesById = null;
+        subWaysById = null;
+        subRelationsById = null;
     }
 
     public bool TryGetSubNode(long id, out Node node)
@@ -120,11 +178,15 @@ public abstract class Loader : MonoBehaviour
                 allReader = XmlReader.Create(allPath);
                 ReadXML(allReader);
             }
+            else
+                WarnIfPathConfigured(allPath, "elements");
             if (tagsPath != null && tagsPath.Length > 0 && File.Exists(tagsPath))
             {
                 tagsReader = XmlReader.Create(tagsPath);
                 ReadTagXML(tagsReader);
             }
+            else
+                WarnIfPathConfigured(tagsPath, "tags");
             if (nodesPath != null && nodesPath.Length > 0 && File.Exists(nodesPath))
             {
                 nodesReader = XmlReader.Create(nodesPath);
@@ -137,6 +199,8 @@ public abstract class Loader : MonoBehaviour
                         subNodes.Add(node);
                 }
             }
+            else
+                WarnIfPathConfigured(nodesPath, "nodes");
             if (waysPath != null && waysPath.Length > 0 && File.Exists(waysPath))
             {
                 waysReader = XmlReader.Create(waysPath);
@@ -149,6 +213,8 @@ public abstract class Loader : MonoBehaviour
                         subWays.Add(way);
                 }
             }
+            else
+                WarnIfPathConfigured(waysPath, "ways");
             if (relationsPath != null && relationsPath.Length > 0 && File.Exists(relationsPath))
             {
                 relationsReader = XmlReader.Create(relationsPath);
@@ -161,6 +227,8 @@ public abstract class Loader : MonoBehaviour
                         subRelations.Add(relation);
                 }
             }
+            else
+                WarnIfPathConfigured(relationsPath, "relations");
         }
         catch (Exception exc)
         {
@@ -174,6 +242,17 @@ public abstract class Loader : MonoBehaviour
             waysReader?.Close();
             relationsReader?.Close();
         }
+    }
+
+    //a configured-but-missing path was silently skipped before this - the loader just carried on with an
+    //empty list for that file, which surfaced much later as a confusing failure somewhere downstream (e.g.
+    //Bounds throwing "Sequence contains no elements" if EVERY file ended up missing) instead of pointing at
+    //the actual missing file. Only warns when a path was actually configured (non-null/non-empty) - a
+    //loader that legitimately has no relationsFile set, for instance, shouldn't spam a warning for it.
+    private static void WarnIfPathConfigured(string path, string label)
+    {
+        if (!string.IsNullOrEmpty(path))
+            Debug.LogWarning($"Loader: {label} XML file not found at '{path}' - skipping it.");
     }
 
     private void ReadXML(XmlReader reader)
@@ -278,6 +357,8 @@ public abstract class Loader : MonoBehaviour
                 //test if the current node is an end node
                 if (reader.NodeType == XmlNodeType.EndElement && reader.Name != "osm")
                     reader.Read();
+                if (tags.Count == 0)
+                    tags = OsmElement.EmptyTags;
 
                 //returns a node with the given attributes
                 return new Node(id, changeset, visible, timestamp, version, uid, user, tags, lat, lon);
@@ -328,6 +409,8 @@ public abstract class Loader : MonoBehaviour
                 //test if the current node is an end node
                 if (reader.NodeType == XmlNodeType.EndElement && reader.Name != "osm")
                     reader.Read();
+                if (tags.Count == 0)
+                    tags = OsmElement.EmptyTags;
 
                 //returns a way with the given attributes
                 return new Way(id, changeset, visible, timestamp, version, uid, user, tags, nodeIds.ToArray());
@@ -379,6 +462,8 @@ public abstract class Loader : MonoBehaviour
                 //test if the current node is an end node
                 if (reader.NodeType == XmlNodeType.EndElement && reader.Name != "osm")
                     reader.Read();
+                if (tags.Count == 0)
+                    tags = OsmElement.EmptyTags;
 
                 //returns a relation with the given attributes
                 return new Relation(id, changeset, visible, timestamp, version, uid, user, tags, members.ToArray());

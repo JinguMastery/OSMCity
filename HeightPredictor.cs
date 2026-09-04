@@ -80,7 +80,7 @@ namespace HeightPrediction
             IDataView dataView = context.Data.LoadFromTextFile<BuildingFeatures>(trainingPath, separatorChar: ',');
             var pipeline = context.Transforms.CopyColumns(outputColumnName: "Label", inputColumnName: "height")
                 .Append(context.Transforms.Categorical.OneHotEncoding(outputColumnName: "typeEncoded", inputColumnName: "type"))
-                .Append(context.Transforms.Concatenate("Features", "groundArea", "perimeter", "normPerimeterIndex", "netInternalSurface", "nNeighbors", "length", "width", "typeEncoded"))
+                .Append(context.Transforms.Concatenate("Features", "groundArea", "perimeter", "normPerimeterIndex", "nFloors", "netInternalSurface", "nNeighbors", "length", "width", "typeEncoded"))
                 .Append(context.Regression.Trainers.FastTree());
             var model = pipeline.Fit(dataView);
             return model;

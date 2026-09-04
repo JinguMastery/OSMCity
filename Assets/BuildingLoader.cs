@@ -20,8 +20,6 @@ public class BuildingLoader : Loader
     private GameObject buildingDetails;
 
     public Dictionary<long, float> Heights { get; } = new Dictionary<long, float>();
-    public GameObject BuildingMeshes { get; private set; }
-    public GameObject RoofMeshes { get; private set; }
     public BuildingLoaderFields Fields { get; private set; }
 
     void Start()
@@ -42,25 +40,17 @@ public class BuildingLoader : Loader
         {
             name = "Building Details"
         };
-        if (!Main.hideMeshInHierarchy)
-        {
-            BuildingMeshes = new GameObject
-            {
-                name = "Building Meshes",
-                hideFlags = HideFlags.NotEditable
-            };
-            RoofMeshes = new GameObject
-            {
-                name = "Roof Meshes",
-                hideFlags = HideFlags.NotEditable
-            };
-        }
         if (Fields.predMethod == PredictionMethod.Text)       //importe les données sur les hauteurs des bâtiments
         {
             LoadHeights();
         }
 
         CreateOsmObjs();    //Create an instance of OsmBuilding for several nodes, several ways, and each tag element
+
+        // every OsmBuilding below has already cached its own SubNodes/SubWays/SubRelations from the raw
+        // lists during CreateOsmObjs (see OsmObject.SetSubElements) - nothing past this point needs
+        // Loader's own copies of them
+        ReleaseIntermediateLoadState();
 
         //obtient les bâtiments dont on connaît la hauteur et le nombre d'étages pour le "training set"
         var trainObjs = from obj in osmTagObjs

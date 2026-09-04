@@ -5,6 +5,7 @@ using UnityEditor.Experimental.GraphView;
 using UnityEditor.ProBuilder;
 using UnityEngine;
 using UnityEngine.ProBuilder;
+using UnityEngine.ProBuilder.MeshOperations;
 
 public abstract class CityObject : MonoBehaviour
 {
@@ -250,15 +251,23 @@ public abstract class CityObject : MonoBehaviour
                 if (barycenter != null)
                     return (Vector3)barycenter;
                 double sLat = 0, sLon = 0;
+                int count = 0;
                 foreach (Node node in osmObj.SubNodes)
                 {
                     if (node.Latitude != null && node.Longitude != null)
                     {
                         sLon += (double)node.Longitude;
                         sLat += (double)node.Latitude;
+                        count++;
                     }
                 }
-                barycenter = osmObj.Loader.Main.GetTerrainCoords(sLat / osmObj.SubNodes.Length, sLon / osmObj.SubNodes.Length) ;
+                // dividing by SubNodes.Length (rather than the count of nodes that actually had
+                // coordinates) produced 0/0 = NaN whenever a way's nodes failed to resolve (e.g. a missing
+                // nodesFile) or none carried lat/lon - that NaN then crashed GetTerrainCoords several calls
+                // downstream instead of being caught here, where "no barycenter" can be reported honestly
+                if (count == 0)
+                    return null;
+                barycenter = osmObj.Loader.Main.GetTerrainCoords(sLat / count, sLon / count);
                 return barycenter;
             }
         }
@@ -406,6 +415,79 @@ public abstract class CityObject : MonoBehaviour
         EditorMeshUtility.RebuildColliders(mesh);
     }
 
+    //ProBuilder's own CreateShapeFromPolygon relies on a sweep-line Delaunay triangulator (Triangulation.
+    //TriangulateVertices, using the bundled Poly2Tri library) that is documented to fail on highly regular/
+    //symmetric polygons - a building or road-area footprint approximating a circle with many evenly-spaced
+    //points (e.g. a small round tower) is exactly that kind of input. The failure is silent from the
+    //caller's perspective: CreateShapeFromPolygon just returns a Failure ActionResult and clears the mesh
+    //to empty, so the GameObject still gets created/named/positioned downstream with nothing visible in it.
+    //A triangle fan from the polygon's own centroid is always a correct triangulation for any convex or
+    //star-shaped polygon - which every round/near-circular footprint is - so it sidesteps the sweep-line
+    //triangulator (and its failure mode) entirely. This mirrors CreateShapeFromPolygon's own
+    //duplicate-then-extrude sequence (see ProBuilder's AppendElements.cs) using only its public API, so a
+    //caller can use it as a drop-in retry and get equivalent geometry to what a successful call would have
+    //produced - including the same normal-facing convention (flipNormals=false faces the cap up).
+    protected static ActionResult CreateFanShapeFromPolygon(ProBuilderMesh mesh, IList<Vector3> points, float extrude, bool flipNormals)
+    {
+        List<Vector3> ring = new List<Vector3>(points);
+        if (ring.Count > 1 && ring[0] == ring[ring.Count - 1])
+            ring.RemoveAt(ring.Count - 1);
+        int n = ring.Count;
+        if (n < 3)
+        {
+            mesh.Clear();
+            mesh.ToMesh();
+            mesh.Refresh();
+            return new ActionResult(ActionResult.Status.NoChange, "Too Few Points");
+        }
+
+        Vector3 centroid = Vector3.zero;
+        foreach (var p in ring)
+            centroid += p;
+        centroid /= n;
+
+        List<Vector3> vertices = new List<Vector3> { centroid };
+        vertices.AddRange(ring);
+        // wound one fixed way (arbitrary - the actual resulting winding depends on the ring's own point
+        // order, which callers don't guarantee any particular handedness for) and corrected below by
+        // checking the ACTUAL resulting normal, rather than assuming this order faces a particular way:
+        // hand-picking a "should be correct" winding here was tried first and got it backwards for this
+        // ring's ordering, silently extruding the whole shape underground instead of up
+        List<int> indexes = new List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            indexes.Add(0); indexes.Add(1 + i); indexes.Add(1 + (i + 1) % n);
+        }
+        Face capFace = new Face(indexes.ToArray());
+        mesh.RebuildWithPositionsAndFaces(vertices, new Face[] { capFace });
+
+        // same check CreateShapeFromPolygon itself uses internally (see ProBuilder's AppendElements.cs):
+        // flipNormals=false should face the cap toward the mesh's own up, so reverse it if it doesn't
+        Vector3 nrm = mesh.gameObject.transform.TransformDirection(Math.Normal(mesh, capFace));
+        if (flipNormals ? Vector3.Dot(mesh.gameObject.transform.up, nrm) > 0f
+                         : Vector3.Dot(mesh.gameObject.transform.up, nrm) < 0f)
+            capFace.Reverse();
+
+        if (extrude != 0f)
+        {
+            // duplicate the flat cap into two coincident faces (one stays as the base, the other gets
+            // extruded outward with connecting side walls) - the exact sequence CreateShapeFromPolygon
+            // itself uses internally
+            mesh.DuplicateAndFlip(mesh.faces.ToArray());
+            Face extrudeFace = flipNormals ? mesh.faces[1] : mesh.faces[0];
+            mesh.Extrude(new Face[] { extrudeFace }, ExtrudeMethod.IndividualFaces, extrude);
+            if ((extrude < 0f && !flipNormals) || (extrude > 0f && flipNormals))
+            {
+                foreach (var face in mesh.faces)
+                    face.Reverse();
+            }
+        }
+
+        mesh.ToMesh();
+        mesh.Refresh();
+        return new ActionResult(ActionResult.Status.Success, "Create Polygon Shape (fan fallback)");
+    }
+
     protected string GetNodePositionsText()
     {
         if (osmObj.Element.Type == OsmGeoType.Node)
@@ -479,18 +561,23 @@ public abstract class CityObject : MonoBehaviour
     public CityObject[] GetNeighbors(float radius)      //obtient le nombre d'objets voisins du même type dont une partie se trouve dans un rayon donné (en m)
     {
         List<CityObject> neighbors = new List<CityObject>();
-        int indObj = osmObj.Loader.CityObjects.ToList().IndexOf(this);
-        int nNeighbors = osmObj.Loader.Main.nNeighbors, objLength = osmObj.Loader.CityObjects.Length ;
+        IReadOnlyList<CityObject> cityObjects = osmObj.Loader.CityObjects;
+        int indObj = osmObj.Loader.IndexOf(this);
+        int nNeighbors = osmObj.Loader.Main.nNeighbors, objLength = cityObjects.Count;
         int begin = nNeighbors < 0 || nNeighbors > objLength ? 0 : Mathf.Max(0, indObj - Mathf.CeilToInt(nNeighbors / 2f));
         int count = nNeighbors < 0 || nNeighbors > objLength ? objLength - 1 : nNeighbors;
         if (nNeighbors >= 0 && nNeighbors <= objLength && indObj + Mathf.FloorToInt(nNeighbors / 2f) > objLength - 1)
             begin = objLength - 1 - nNeighbors;
         for (int i = begin; i <= begin + count; i++)
         {
-            CityObject cityObj = osmObj.Loader.CityObjects[i];
+            CityObject cityObj = cityObjects[i];
             if (cityObj.osmObj.Element.Id != osmObj.Element.Id && cityObj.type == type)
             {
-                foreach (var node in cityObj.osmObj.SubNodes)
+                // a standalone-node city object (e.g. nBuildingNodes/nHighwayNodes set to load isolated
+                // nodes) has no SubNodes of its own (see OsmObject.SetSubElements - a single node isn't a
+                // polygon with sub-nodes, it IS the point) - fall back to its own single position instead
+                Node[] neighborNodes = cityObj.osmObj.SubNodes ?? new[] { (Node)cityObj.osmObj.Element };
+                foreach (var node in neighborNodes)
                 {
                     Vector3? pos = GetNodePosition(node);
                     if (pos == null || Barycenter == null)
@@ -503,8 +590,6 @@ public abstract class CityObject : MonoBehaviour
                     Vector3 realRadius = new Vector3(xRadius * osmObj.Loader.Main.xMeterScale, 0, zRadius * osmObj.Loader.Main.zMeterScale);
                     if (d < realRadius.magnitude && cityObj.Elevation == Elevation)
                     {
-                        Debug.Log(d);
-                        Debug.Log(realRadius.magnitude);
                         neighbors.Add(cityObj);
                         break;
                     }

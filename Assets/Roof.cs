@@ -181,7 +181,10 @@ public class Roof : MonoBehaviour
             if (!building.IsParallelogram)
                 return Width;
             float width = isAcross ? building.LongestSide : building.ShortestSide;
-            return width != float.NaN ? width : Width;
+            // width != float.NaN is always true (NaN compares unequal to everything, including itself under
+            // IEEE 754) - that silently defeated this fallback for exactly the buildings it exists to catch
+            // (e.g. a round/many-cornered footprint where mergedSideLengths ends up empty)
+            return !float.IsNaN(width) ? width : Width;
         }
     }
 
@@ -192,7 +195,7 @@ public class Roof : MonoBehaviour
             if (!building.IsParallelogram)
                 return Length;
             float length = isAcross ? building.ShortestSide : building.LongestSide;
-            return length != float.NaN ? length : Length;
+            return !float.IsNaN(length) ? length : Length;
         }
     }
 
@@ -205,7 +208,7 @@ public class Roof : MonoBehaviour
                 float h = 0;
                 try
                 {
-                    h = float.Parse(strHeight ?? strHeight2, CultureInfo.InvariantCulture);
+                    h = float.Parse(strHeight?.Replace("m", "") ?? strHeight2?.Replace("m", ""), CultureInfo.InvariantCulture);
                 }
                 catch (Exception exc)
                 {
@@ -441,7 +444,7 @@ public class Roof : MonoBehaviour
 
     private float GetHeight(float angle)
     {
-        if (angle != 0f || angle != 90f || angle != 180f || angle != 270f)
+        if (angle != 0f && angle != 90f && angle != 180f && angle != 270f)
             return Mathf.Abs(Mathf.Tan(angle * Mathf.Deg2Rad)) * SideWidth / 2;
         else
             return height * building.OsmObject.Loader.Main.yMeterScale * NLevels;
@@ -882,10 +885,9 @@ public class Roof : MonoBehaviour
         if (building.OsmObject.Loader.Main.hideMeshInHierarchy)
             mesh.hideFlags = HideFlags.HideInHierarchy;
         else
-        {
-            mesh.transform.SetParent(((BuildingLoader)building.OsmObject.Loader).RoofMeshes.transform);
             mesh.gameObject.hideFlags = HideFlags.NotEditable;
-        }
+        // Roof is a component on the same GameObject as its Building, so its own transform is that building's
+        mesh.transform.SetParent(transform);
         mesh.name = "ID = " + building.OsmObject.Element.Id;
         // Update the texture and the color
         if (shape != RoofShape.Round)
@@ -894,10 +896,11 @@ public class Roof : MonoBehaviour
             UpdateColor(color);
         // Update the mesh position
         Vector3 pos = (Vector3)building.Center;
+        float baseRef = building.IsUnderground ? 0f : building.Height;
         if (shape == RoofShape.Dome)
-            pos.y = building.Height > height ? building.Height - height : building.Height;
+            pos.y = building.Height > height ? baseRef - height : baseRef;
         else
-            pos.y = building.Height > height ? building.Height - height / 2f : building.Height + height / 2f;
+            pos.y = building.Height > height ? baseRef - height / 2f : baseRef + height / 2f;
         mesh.transform.position = pos;
         // Update the mesh rotation
 

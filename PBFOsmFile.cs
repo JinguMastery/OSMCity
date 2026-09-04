@@ -797,13 +797,14 @@ namespace OsmImport
 
         public static OsmGeo[] DropDuplicates(OsmGeo[] elems)
         {
+            //seen.Add returns false for an id/type pair already recorded, so this replaces a fresh LINQ
+            //scan over everything visited so far (O(elems.Length^2) overall) with an O(1) membership check
+            //per element - the same fix as WriteSubElemsTo's filteredKeys, for the equivalent quadratic case
+            HashSet<(long? id, OsmGeoType type)> seen = new HashSet<(long?, OsmGeoType)>();
             List<OsmGeo> visitedElems = new List<OsmGeo>();
             foreach (var elem in elems)
             {
-                var found = from osmGeo in visitedElems
-                            where osmGeo.Id == elem.Id && osmGeo.Type == elem.Type
-                            select osmGeo;
-                if (!found.Any())
+                if (seen.Add((elem.Id, elem.Type)))
                 {
                     visitedElems.Add(elem);
                 }
@@ -823,14 +824,22 @@ namespace OsmImport
                 List<Way> visitedWays = new List<Way>();
                 List<Relation> visitedRelations = new List<Relation>();
                 List<OsmGeo> filtered = new List<OsmGeo>();
+
+                //built once instead of a fresh LINQ linear scan over filteredElems per element below - same
+                //fix as WriteSubElemsTo's filteredKeys, for the equivalent O(elements in file * filteredElems.Length) case
+                HashSet<(long? id, OsmGeoType type)> filteredKeys = null;
+                if (filteredElems != null)
+                {
+                    filteredKeys = new HashSet<(long?, OsmGeoType)>();
+                    foreach (var osmGeo in filteredElems)
+                        filteredKeys.Add((osmGeo.Id, osmGeo.Type));
+                }
+
                 foreach (var completeElem in completeSource)
                 {
                     if (completeElem.Type == OsmGeoType.Node)
                         continue;
-                    var found = from osmGeo in filteredElems
-                                where osmGeo.Id == completeElem.Id && osmGeo.Type == completeElem.Type
-                                select osmGeo;
-                    if (filteredElems == null || found.Any())
+                    if (filteredKeys == null || filteredKeys.Contains((completeElem.Id, completeElem.Type)))
                     {
                         if (completeElem.Type == OsmGeoType.Relation)
                         {
@@ -845,32 +854,29 @@ namespace OsmImport
                         }
                     }
                 }
-                //reject duplicates in source comparing to all sub-elements
-                IEnumerable<OsmGeo> duplicates;
+                //reject duplicates in source comparing to all sub-elements - built once instead of a fresh
+                //LINQ linear scan over the relevant visited* list per element below, same fix as filteredKeys
+                //above, for the equivalent O(source.Length * visited*.Length) case
+                HashSet<long?> visitedNodeIds = new HashSet<long?>();
+                foreach (var node in visitedNodes)
+                    visitedNodeIds.Add(node.Id);
+                HashSet<long?> visitedWayIds = new HashSet<long?>();
+                foreach (var way in visitedWays)
+                    visitedWayIds.Add(way.Id);
+                HashSet<long?> visitedRelationIds = new HashSet<long?>();
+                foreach (var relation in visitedRelations)
+                    visitedRelationIds.Add(relation.Id);
+
                 foreach (var elem in source)
                 {
+                    bool isDuplicate;
                     if (elem.Type == OsmGeoType.Relation)
-                    {
-                        duplicates = from relation in visitedRelations
-                                     where relation.Id == elem.Id
-                                     select relation;
-                    }
+                        isDuplicate = visitedRelationIds.Contains(elem.Id);
+                    else if (elem.Type == OsmGeoType.Way)
+                        isDuplicate = visitedWayIds.Contains(elem.Id);
                     else
-                    {
-                        if (elem.Type == OsmGeoType.Way)
-                        {
-                            duplicates = from way in visitedWays
-                                         where way.Id == elem.Id
-                                         select way;
-                        }
-                        else
-                        {
-                            duplicates = from node in visitedNodes
-                                         where node.Id == elem.Id
-                                         select node;
-                        }
-                    }
-                    if (!duplicates.Any())
+                        isDuplicate = visitedNodeIds.Contains(elem.Id);
+                    if (!isDuplicate)
                         filtered.Add(elem);
                 }
                 if (filtered.Any())
@@ -910,14 +916,22 @@ namespace OsmImport
                 List<Way> ways = new List<Way>();
                 List<Relation> relations = new List<Relation>();
 
+                //built once instead of a fresh LINQ linear scan over filtered per element below - that made
+                //this an O(elements in PBF * filtered.Length) algorithm, which dominated runtime on a
+                //large extract (e.g. Luxembourg) with a large filtered highway list
+                HashSet<(long? id, OsmGeoType type)> filteredKeys = null;
+                if (filtered != null)
+                {
+                    filteredKeys = new HashSet<(long?, OsmGeoType)>();
+                    foreach (var osmGeo in filtered)
+                        filteredKeys.Add((osmGeo.Id, osmGeo.Type));
+                }
+
                 foreach (var completeElem in completeSource)
                 {
                     if (completeElem.Type == OsmGeoType.Node)
                         continue;
-                    var found = from osmGeo in filtered
-                                where osmGeo.Id == completeElem.Id && osmGeo.Type == completeElem.Type
-                                select osmGeo;
-                    if (filtered == null || found.Any())
+                    if (filteredKeys == null || filteredKeys.Contains((completeElem.Id, completeElem.Type)))
                     {
                         if (completeElem.Type == OsmGeoType.Way)
                         {

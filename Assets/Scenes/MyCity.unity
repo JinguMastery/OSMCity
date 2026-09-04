@@ -430,15 +430,15 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b0dfc43d30fdbfc44a9f51d9d640f121, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: 
-  elementsFile: liechtenstein-buildings.xml
-  tagsFile: liechtenstein-buildings-tags.xml
-  nodesFile: liechtenstein-buildings-nodes.xml
-  waysFile: liechtenstein-buildings-ways.xml
-  relationsFile: liechtenstein-buildings-relations.xml
-  trainingPath: G:\Buildings\liechtenstein_training.txt
-  testPath: G:\Buildings\liechtenstein_test.txt
-  heightsFile: liechtenstein_heights.txt
+  m_EditorClassIdentifier: Assembly-CSharp::BuildingLoaderFields
+  elementsFile: luxembourg-buildings-extract.xml
+  tagsFile: luxembourg-buildings-tags-extract.xml
+  nodesFile: luxembourg-buildings-nodes-extract.xml
+  waysFile: luxembourg-buildings-ways-extract.xml
+  relationsFile: luxembourg-buildings-relations-extract.xml
+  trainingPath: F:\Buildings\luxembourg_training_extract.txt
+  testPath: F:\Buildings\luxembourg_test_extract.txt
+  heightsFile: luxembourg_heights_extract.txt
   nBuildingNodes: -1
   nBuildingWays: -1
   reverseOrder: 0
@@ -456,11 +456,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 06dc677727737f648b59c77825b9c6f3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HighwayLoaderFields
-  elementsFile: liechtenstein-highways.xml
-  tagsFile: liechtenstein-highways-tags.xml
-  nodesFile: liechtenstein-highways-nodes.xml
-  waysFile: liechtenstein-highways-ways.xml
-  relationsFile: liechtenstein-highways-relations.xml
+  elementsFile: luxembourg-highways-extract.xml
+  tagsFile: luxembourg-highways-tags-extract.xml
+  nodesFile: luxembourg-highways-nodes-extract.xml
+  waysFile: luxembourg-highways-ways-extract.xml
+  relationsFile: luxembourg-highways-relations-extract.xml
   nHighwayNodes: -1
   nHighwayWays: -1
   reverseOrder: 0

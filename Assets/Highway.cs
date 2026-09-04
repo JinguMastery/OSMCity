@@ -76,7 +76,8 @@ public class Highway : CityObject
         { "bus_stop", ("Prefabs/StreetSign_G", "BusStop ") },
         { "give_way", ("Prefabs/StreetSign_F", "GiveWay ") },
         { "stop", ("Prefabs/StreetSign_C", "Stop ") },
-        { "street_lamp", ("Prefabs/LampPost_J", "StreetLamp ") }
+        { "street_lamp", ("Prefabs/LampPost_J", "StreetLamp ") },
+        { "crossing", ("Prefabs/Road_Crosswalk", "Crossing ") }
     };
 
     public Material HighwayMaterial
@@ -262,6 +263,10 @@ public class Highway : CityObject
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
+        // set once, not touched again: children of this GameObject (the road mesh, point props)
+        // are parented with worldPositionStays, so this must stay fixed after they're attached
+        transform.position = Barycenter ?? Vector3.zero;
+
         trueMiscellaneous = GetMiscellaneous();
         miscellaneous = trueMiscellaneous;
         trueNodePositions = GetNodePositionsText();
@@ -269,89 +274,7 @@ public class Highway : CityObject
         yOffset = ComputeHeightTierOffset();
         _ = Markings; _ = Type; _ = Surface;
 
-        if (surface != null)
-        {
-            switch (surface)
-            {
-                case "unpaved":
-                case "ground":
-                    material = Resources.Load<Material>("Materials/dirt");
-                    break;
-                case "paved":
-                case "pavers":
-                    material = Resources.Load<Material>("Materials/paving_stones");
-                    break;
-                case "compacted":
-                    material = Resources.Load<Material>("Materials/gravel");
-                    break;
-                case "paving_stones:lanes":
-                    surface = "paving_stones";
-                    break;
-                case "concrete:lanes":
-                    surface = "concrete";
-                    break;
-                case "concrete:plates":
-                    surface = "concrete_plates";
-                    break;
-                case "wood;planks":
-                    surface = "wood_plank";
-                    break;
-                default:
-                    break;
-            }
-            if (material == null)
-                material = Resources.Load<Material>("Materials/" + surface);
-        }
-
-        if (surface == "asphalt" || HighwayMaterial == null)
-        {
-            if (surface == "asphalt" && markings == "no") {
-                material = Resources.Load<Material>("Materials/asphalt");
-            }
-            else if (surface == "asphalt" && markings == "yes")
-            {
-                material = highwayType == "pedestrian" || highwayType == "crossing" ? Resources.Load<Material>("Materials/crosswalk") : HighwayLoader.DefHighwayMat;
-            }
-            else
-            {
-                switch (highwayType)
-                {
-                    case "pedestrian":
-                    case "crossing":
-                        material = Resources.Load<Material>("Materials/crosswalk");
-                        break;
-                    case "footway":
-                    case "track":
-                    case "service":
-                    case "bus_guideway":
-                    case "busway":
-                    case "escape":
-                        material ??= Resources.Load<Material>("Materials/asphalt");
-                        break;
-                    case "path":
-                        material ??= Resources.Load<Material>("Materials/dirt");
-                        break;
-                    case "motorway":
-                    case "trunk":
-                    case "primary":
-                    case "secondary":
-                    case "tertiary":
-                    case "unclassified":
-                    case "residential":
-                    case "living_street":
-                    case "road":
-                    case "raceway":
-                        material = HighwayLoader.DefHighwayMat;
-                        break;
-                    default:
-                        if (surface == "asphalt")
-                            material = HighwayLoader.DefHighwayMat;
-                        else
-                            material ??= Resources.Load<Material>("Materials/dirt");
-                        break;
-                }
-            }
-        }
+        CheckSurface();
 
         // Add a material
         prevMat = material;
@@ -420,9 +343,6 @@ public class Highway : CityObject
         if (miscellaneous != trueMiscellaneous)
             miscellaneous = trueMiscellaneous;
 
-        //met à jour la position
-        transform.position = Barycenter ?? Vector3.zero;
-
         //met à jour la texture si besoin
         if (material != null && prevMat != null && material.name != prevMat.name)
         {
@@ -458,6 +378,90 @@ public class Highway : CityObject
         distanceBuffer?.Release();
         pathBuffer = null;
         distanceBuffer = null;
+    }
+
+    private void CheckSurface()
+    {
+        if (surface != null)
+        {
+            switch (surface)
+            {
+                case "unpaved":
+                case "ground":
+                    material = Resources.Load<Material>("Materials/dirt");
+                    break;
+                case "paved":
+                case "pavers":
+                    material = Resources.Load<Material>("Materials/paving_stones");
+                    break;
+                case "compacted":
+                    material = Resources.Load<Material>("Materials/gravel");
+                    break;
+                case "paving_stones:lanes":
+                    surface = "paving_stones";
+                    break;
+                case "concrete:lanes":
+                    surface = "concrete";
+                    break;
+                case "concrete:plates":
+                    surface = "concrete_plates";
+                    break;
+                case "wood;planks":
+                    surface = "wood_plank";
+                    break;
+                default:
+                    break;
+            }
+            if (material == null)
+                material = Resources.Load<Material>("Materials/" + surface);
+        }
+
+        if (surface == "asphalt" || HighwayMaterial == null)
+        {
+            if (surface == "asphalt" && markings == "no")
+                material = Resources.Load<Material>("Materials/asphalt");
+            else if (surface == "asphalt" && markings == "yes")
+                material = highwayType == "pedestrian" || highwayType == "crossing" ? Resources.Load<Material>("Materials/crosswalk") : HighwayLoader.DefHighwayMat;
+            else
+            {
+                switch (highwayType)
+                {
+                    case "pedestrian":
+                    case "crossing":
+                        material = Resources.Load<Material>("Materials/crosswalk");
+                        break;
+                    case "footway":
+                    case "track":
+                    case "service":
+                    case "bus_guideway":
+                    case "busway":
+                    case "escape":
+                        material ??= Resources.Load<Material>("Materials/asphalt");
+                        break;
+                    case "path":
+                        material ??= Resources.Load<Material>("Materials/dirt");
+                        break;
+                    case "motorway":
+                    case "trunk":
+                    case "primary":
+                    case "secondary":
+                    case "tertiary":
+                    case "unclassified":
+                    case "residential":
+                    case "living_street":
+                    case "road":
+                    case "raceway":
+                        material = HighwayLoader.DefHighwayMat;
+                        break;
+                    default:
+                        if (surface == "asphalt")
+                            material = HighwayLoader.DefHighwayMat;
+                        else
+                            material ??= Resources.Load<Material>("Materials/dirt");
+                        break;
+                }
+            }
+        }
     }
 
     //deterministic vertical tier for this road, computed once from its own tags
@@ -499,7 +503,9 @@ public class Highway : CityObject
                 rotation = Quaternion.LookRotation(dir, Vector3.up) * PostUprightCorrection;
             }
             cityObj = Instantiate(prefab, pos, rotation);
-            if (nearest.HasValue)
+            // a crossing sits ON the road it crosses (that's the point), so it doesn't need clearing away
+            // from whichever road is nearest the way every other point prop does
+            if (nearest.HasValue && highwayType != "crossing")
             {
                 // the node itself isn't part of any way, but it stands beside whichever road segment is
                 // nearest (found above) - if a DIFFERENT, crossing road also passes close enough to overlap
@@ -507,6 +513,13 @@ public class Highway : CityObject
                 // as an embedded node at a junction (see ResolveCrossWayOverlap)
                 Vector3 tangent = (nearest.Value.b - nearest.Value.a).normalized;
                 cityObj.transform.position = ResolveCrossWayOverlap(cityObj, pos, tangent, nearest.Value.wayId);
+            }
+            if (highwayType == "crossing")
+            {
+                // no nearby road segment to size against - HighwayWidth still resolves to a sensible default
+                // (3, its own field default) rather than leaving the prefab at its unrelated baked-in width
+                ScaleLongestSideTo(cityObj, nearest.HasValue ? nearest.Value.halfWidth * 2f : HighwayWidth);
+                cityObj.transform.position += Vector3.up * GroundLift(cityObj, pos.y);
             }
             // prefixed (per type) so every instance of a point prop - however many, whatever their OSM id - can
             // be found at once with a plain Hierarchy window search, instead of having to know each id up front
@@ -553,7 +566,7 @@ public class Highway : CityObject
                     Vector3? wayDir = ComputeWayDirectionAtNode(osmObj.SubNodes, subNode.Id.Value, subPos.Value);
                     bool backward = IsBackwardDirection(subNode);
                     Quaternion rotation = BuildPostRotation(subType, wayDir, backward);
-                    SpawnPointProp(subNode, subPos.Value, wayDir, backward, osmObj.Element.Id ?? -1, rotation, propInfo.prefabPath, propInfo.namePrefix);
+                    SpawnPointProp(subNode, subPos.Value, wayDir, backward, osmObj.Element.Id ?? -1, rotation, propInfo.prefabPath, propInfo.namePrefix, subType);
                 }
             }
             else if (subNode.Tags.ContainsKey("highway"))
@@ -570,11 +583,22 @@ public class Highway : CityObject
     //final candidate position FIRST and resolving overlap against THAT (rather than resolving overlap, then
     //separately nudging out by the mesh's own half-extent afterwards) matters: an offset applied after the
     //overlap check can walk the post right back into whatever crossing road the check just cleared it from
-    private void SpawnPointProp(Node node, Vector3 centerlinePos, Vector3? wayDir, bool backward, long ownWayId, Quaternion rotation, string prefabPath, string namePrefix)
+    //
+    //a "crossing" node is the one exception to all of that: unlike a post/sign, its prefab (the zebra
+    //stripes) is meant to span the road, not stand beside it - so it keeps the rotation (still perpendicular
+    //to the road, via the same BuildPostRotation the caller already computed, so the stripes run across the
+    //road) but skips the border push entirely and stays centered on the node's own position, just lifted
+    //clear of the road surface underneath it
+    private void SpawnPointProp(Node node, Vector3 centerlinePos, Vector3? wayDir, bool backward, long ownWayId, Quaternion rotation, string prefabPath, string namePrefix, string propType)
     {
         GameObject prefab = Resources.Load<GameObject>(prefabPath);
         GameObject propObj = Instantiate(prefab, centerlinePos, rotation);
-        if (wayDir.HasValue)
+        if (propType == "crossing")
+        {
+            ScaleLongestSideTo(propObj, HighwayWidth);
+            propObj.transform.position = centerlinePos + Vector3.up * GroundLift(propObj, centerlinePos.y);
+        }
+        else if (wayDir.HasValue)
         {
             Vector3 perp = PerpendicularToRoad(wayDir.Value, backward);
             float meshHalfExtent = HalfExtentAlongDirection(propObj, perp);
@@ -585,10 +609,8 @@ public class Highway : CityObject
         if (osmObj.Loader.Main.hideMeshInHierarchy)
             SetHideFlagsRecursive(propObj, HideFlags.HideInHierarchy);
         else
-        {
             SetHideFlagsRecursive(propObj, HideFlags.NotEditable);
-            propObj.transform.SetParent(((HighwayLoader)osmObj.Loader).HighwayMeshes.transform);
-        }
+        propObj.transform.SetParent(transform);
         Debug.Log("Added point prop as way prefab : " + namePrefix);
     }
 
@@ -632,13 +654,11 @@ public class Highway : CityObject
         return backward ? right : -right;
     }
 
-    //half of this instantiated prop's own world-space extent along dir - the standard support-distance
-    //formula for an axis-aligned box (Renderer.bounds) projected onto an arbitrary direction. Used to push a
-    //post that's already sitting exactly on the road border out by its own thickness, so its near face
-    //touches the border instead of its center - which would leave half the mesh buried in the road
-    private static float HalfExtentAlongDirection(GameObject go, Vector3 dir)
+    //combined world-space bounds of every Renderer under go (a prefab can carry separate child parts, e.g. a
+    //lamp's light fixture) - false if it has none
+    private static bool TryGetRendererBounds(GameObject go, out Bounds bounds)
     {
-        Bounds bounds = default;
+        bounds = default;
         bool hasBounds = false;
         foreach (Renderer renderer in go.GetComponentsInChildren<Renderer>())
         {
@@ -650,10 +670,47 @@ public class Highway : CityObject
             else
                 bounds.Encapsulate(renderer.bounds);
         }
-        if (!hasBounds)
+        return hasBounds;
+    }
+
+    //half of this instantiated prop's own world-space extent along dir - the standard support-distance
+    //formula for an axis-aligned box (Renderer.bounds) projected onto an arbitrary direction. Used to push a
+    //post that's already sitting exactly on the road border out by its own thickness, so its near face
+    //touches the border instead of its center - which would leave half the mesh buried in the road
+    private static float HalfExtentAlongDirection(GameObject go, Vector3 dir)
+    {
+        if (!TryGetRendererBounds(go, out Bounds bounds))
             return 0f;
         Vector3 extents = bounds.extents;
         return extents.x * Mathf.Abs(dir.x) + extents.y * Mathf.Abs(dir.y) + extents.z * Mathf.Abs(dir.z);
+    }
+
+    //uniformly scales go so the longer of its own (already-rotated) horizontal world extents - X and Z, the
+    //footprint on the ground, not Y which is thickness after PostUprightCorrection - equals targetWidth. The
+    //crossing prefab's zebra-stripe mesh has some fixed width baked in from the source asset, unrelated to
+    //any actual road it gets placed on; this resizes it (proportionally, so the stripe pitch isn't distorted)
+    //to match whichever road segment it's crossing. Must run before GroundLift, since that reads bounds too
+    //and needs them to reflect the final scale, not the prefab's own default one
+    private static void ScaleLongestSideTo(GameObject go, float targetWidth)
+    {
+        if (targetWidth <= 0f || !TryGetRendererBounds(go, out Bounds bounds))
+            return;
+        float longestSide = Mathf.Max(bounds.size.x, bounds.size.z);
+        if (longestSide <= 0f)
+            return;
+        go.transform.localScale *= targetWidth / longestSide;
+    }
+
+    //how far to raise go's pivot so the BOTTOM of its combined renderer bounds sits at groundY, plus a small
+    //TerrainClearance margin above it to avoid z-fighting with the road surface underneath. Unlike
+    //HalfExtentAlongDirection, this doesn't assume the pivot sits at the bounds' center - a flat constant
+    //offset landed wrong regardless of its size because the crossing prefab's pivot isn't at its base, so
+    //this reads the actual (already-rotated) world bounds instead of guessing a fixed lift
+    private static float GroundLift(GameObject go, float groundY)
+    {
+        if (!TryGetRendererBounds(go, out Bounds bounds))
+            return 0f;
+        return groundY + TerrainClearance - bounds.min.y;
     }
 
     //a node placed exactly at a multi-way junction is claimed and spawned by only the first way that reaches
@@ -840,6 +897,12 @@ public class Highway : CityObject
                 Vector3[] subDivisions = ComputeSubDivisions(bounds);
                 // Create a mesh from the polygon shape
                 ActionResult act = mesh.CreateShapeFromPolygon(subDivisions.ToList(), 0.01f, false);
+                // ProBuilder's own triangulator can fail on a highly regular set of points (e.g. a long,
+                // straight ribbon evenly subdivided by ComputeSubDivisions) even though the polygon itself is
+                // perfectly valid - see CreateFanShapeFromPolygon's comment. Retry with a centroid fan
+                // instead of leaving an empty mesh.
+                if (!act.ToBool())
+                    act = CreateFanShapeFromPolygon(mesh, subDivisions, 0.01f, false);
                 mesh.DuplicateAndFlip(mesh.faces.ToArray());
                 IsVisible = act.ToBool();
             }
@@ -937,6 +1000,12 @@ public class Highway : CityObject
             material = Resources.Load<Material>("Materials/asphalt");
         mesh = cityObj.AddComponent<ProBuilderMesh>();
         ActionResult act = mesh.CreateShapeFromPolygon(pos.ToList(), 0.01f, false);
+        // ProBuilder's own triangulator can fail on a highly regular footprint (e.g. a round plaza/roundabout
+        // island approximated by many evenly-spaced points) even though the polygon itself is perfectly
+        // valid - see CreateFanShapeFromPolygon's comment. Retry with a centroid fan instead of leaving an
+        // empty mesh.
+        if (!act.ToBool())
+            act = CreateFanShapeFromPolygon(mesh, pos, 0.01f, false);
         mesh.DuplicateAndFlip(mesh.faces.ToArray());
         IsVisible = act.ToBool();
         // yOffset is always 0 here (ComputeHeightTierOffset returns 0 for IsArea)
@@ -969,8 +1038,7 @@ public class Highway : CityObject
         }
         if (osmObj.Loader.Main.hideMeshInHierarchy)
             SetHideFlagsRecursive(cityObj, HideFlags.HideInHierarchy);
-        else
-            cityObj.transform.SetParent(((HighwayLoader)osmObj.Loader).HighwayMeshes.transform);
+        cityObj.transform.SetParent(transform);
     }
 
     private Vector3[] ComputeHighwayBounds(Vector3[] pos, float width)

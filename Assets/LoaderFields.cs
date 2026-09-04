@@ -16,13 +16,14 @@ public class LoaderFields: MonoBehaviour
     [Tooltip("File name of the subrelations of the OSM elements and tag elements")]
     public string relationsFile = "liechtenstein-buildings-relations.xml";
 
-    public void SetDefaultValues(string cityName, string cityObject)
+    public void SetDefaultValues(string cityName, string cityObject, bool extract = false)
     {
-        elementsFile = cityName + '-' + cityObject + ".xml";
-        tagsFile = cityName + '-' + cityObject + "-tags.xml";
-        nodesFile = cityName + '-' + cityObject + "-nodes.xml";
-        waysFile = cityName + '-' + cityObject + "-ways.xml";
-        relationsFile = cityName + '-' + cityObject + "-relations.xml";
+        string extractStr = extract ? "-extract" : "";
+        elementsFile = cityName + '-' + cityObject + extractStr + ".xml";
+        tagsFile = cityName + '-' + cityObject + "-tags" + extractStr + ".xml";
+        nodesFile = cityName + '-' + cityObject + "-nodes" + extractStr + ".xml";
+        waysFile = cityName + '-' + cityObject + "-ways" + extractStr + ".xml";
+        relationsFile = cityName + '-' + cityObject + "-relations" + extractStr + ".xml";
     }
 
 }

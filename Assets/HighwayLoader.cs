@@ -30,8 +30,6 @@ public class HighwayLoader : Loader
     private const float DefaultRoadHalfWidth = 1.5f;
     private Dictionary<(int x, int z), List<(Vector3 a, Vector3 b, long wayId, float halfWidth)>> waySegmentGrid;
 
-    public GameObject HighwayMeshes { get; private set; }
-
     public HighwayLoaderFields Fields { get; private set; }
 
     //returns true (and claims it) the first time this node id is passed in, false on every later call for
@@ -148,16 +146,12 @@ public class HighwayLoader : Loader
         {
             name = "Highway Details"
         };
-        if (!Main.hideMeshInHierarchy)
-        {
-            HighwayMeshes = new GameObject
-            {
-                name = "Highway Meshes",
-                hideFlags = HideFlags.NotEditable
-            };
-        }
 
         CreateOsmObjs();    //Create an instance of OsmHighway for several nodes, several ways, and each tag element
+
+        // every OsmHighway below has already cached its own SubNodes from the raw lists during CreateOsmObjs
+        // (see OsmObject.SetSubElements) - nothing past this point needs Loader's own copies of them
+        ReleaseIntermediateLoadState();
 
         foreach (var obj in osmObjs)
         {
