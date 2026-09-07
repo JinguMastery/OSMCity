@@ -27,9 +27,7 @@ public class Building : CityObject
     public string age;
     public Color color = Color.clear;
     public string houseNumber;
-    [Tooltip("Post code must be positive")]
-    [Min(0)]
-    public int postCode;
+    public string postCode;
     public string street, city, country;
 
     [Header("Picture of a face of the building")]
@@ -64,6 +62,7 @@ public class Building : CityObject
     private List<Vector3> mergedSideVectors;
     private bool isUnderground;
     public bool IsUnderground => isUnderground;
+    public Vector3[] GroundPositions => positions;
 
     //attributs cadastres
     public int NFloors
@@ -303,20 +302,13 @@ public class Building : CityObject
         }
     }
 
-    public int PostCode
+    public string PostCode
     {
         get
         {
             if (osmObj.Element.Tags.TryGetValue("addr:postcode", out string code))
             {
-                try
-                {
-                    postCode = int.Parse(code, CultureInfo.InvariantCulture);
-                }
-                catch (Exception exc)
-                {
-                    Debug.LogWarning(exc.Message + code);
-                }
+                postCode = code;
             }
             return postCode;
         }
@@ -865,7 +857,7 @@ public class Building : CityObject
     private void AddPrimitive(Vector3 pos)
     {
         cityObj = GameObject.CreatePrimitive(geometry);
-        cityObj.name = "ID = " + osmObj.Element.Id;
+        cityObj.name = "Building ID = " + osmObj.Element.Id;
         cityObj.hideFlags = HideFlags.NotEditable;
         cityObj.transform.position = new Vector3(pos.x, pos.y + prev_height / 2f, pos.z);
         cityObj.transform.localScale = new Vector3(Length, prev_height, Width);
@@ -905,7 +897,7 @@ public class Building : CityObject
         positions = pos;
         cityObj = new GameObject
         {
-            name = "ID = " + osmObj.Element.Id,
+            name = "Building ID = " + osmObj.Element.Id,
             hideFlags = HideFlags.NotEditable
         };
         // Add a ProBuilderMesh component (ProBuilder mesh data is stored here)

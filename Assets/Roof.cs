@@ -421,7 +421,7 @@ public class Roof : MonoBehaviour
                 break;
             case RoofShape.Flat:
                 height = 0.01f; prevHeight = Height;
-                mesh = ShapeGenerator.GeneratePlane(PivotLocation.Center, building.Width, building.Length, 0, 0, Axis.Up);
+                mesh = CreateFlatRoofMesh();
                 mesh.DuplicateAndFlip(mesh.faces.ToArray());
                 break;
             case RoofShape.Round:
@@ -440,6 +440,31 @@ public class Roof : MonoBehaviour
                 building.UpdateRoofMaterial(material);
                 break;
         }
+    }
+
+    // Builds the flat roof cap from the building's own ground polygon (in local space, centered on
+    // building.Center, matching how UpdateRoof positions/rotates the resulting mesh afterward) so a flat
+    // roof follows the building's real footprint shape instead of its circumscribed rectangle. Falls back
+    // to that rectangle for relation-based multi-polygon buildings, whose footprint isn't tracked (see
+    // Building.GroundPositions / CreateMultiPolygon).
+    private ProBuilderMesh CreateFlatRoofMesh()
+    {
+        Vector3[] footprint = building.GroundPositions;
+        if (footprint == null || footprint.Length < 3)
+            return ShapeGenerator.GeneratePlane(PivotLocation.Center, building.Width, building.Length, 0, 0, Axis.Up);
+
+        Vector3 center = (Vector3)building.Center;
+        List<Vector3> localPoints = new List<Vector3>(footprint.Length);
+        foreach (Vector3 p in footprint)
+            localPoints.Add(new Vector3(p.x - center.x, 0f, p.z - center.z));
+
+        ProBuilderMesh capMesh = new GameObject().AddComponent<ProBuilderMesh>();
+        ActionResult act = capMesh.CreateShapeFromPolygon(localPoints, 0.01f, false);
+        // see CreateFanShapeFromPolygon's comment (CityObject.cs) - ProBuilder's own triangulator can fail
+        // on a highly regular footprint even though the polygon itself is perfectly valid
+        if (!act.ToBool())
+            CityObject.CreateFanShapeFromPolygon(capMesh, localPoints, 0.01f, false);
+        return capMesh;
     }
 
     private float GetHeight(float angle)
@@ -888,7 +913,7 @@ public class Roof : MonoBehaviour
             mesh.gameObject.hideFlags = HideFlags.NotEditable;
         // Roof is a component on the same GameObject as its Building, so its own transform is that building's
         mesh.transform.SetParent(transform);
-        mesh.name = "ID = " + building.OsmObject.Element.Id;
+        mesh.name = "Roof ID = " + building.OsmObject.Element.Id;
         // Update the texture and the color
         if (shape != RoofShape.Round)
             UpdateMaterial();

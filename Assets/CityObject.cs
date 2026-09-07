@@ -427,7 +427,7 @@ public abstract class CityObject : MonoBehaviour
     //duplicate-then-extrude sequence (see ProBuilder's AppendElements.cs) using only its public API, so a
     //caller can use it as a drop-in retry and get equivalent geometry to what a successful call would have
     //produced - including the same normal-facing convention (flipNormals=false faces the cap up).
-    protected static ActionResult CreateFanShapeFromPolygon(ProBuilderMesh mesh, IList<Vector3> points, float extrude, bool flipNormals)
+    internal static ActionResult CreateFanShapeFromPolygon(ProBuilderMesh mesh, IList<Vector3> points, float extrude, bool flipNormals)
     {
         List<Vector3> ring = new List<Vector3>(points);
         if (ring.Count > 1 && ring[0] == ring[ring.Count - 1])

@@ -906,7 +906,7 @@ public class Highway : CityObject
                 mesh.DuplicateAndFlip(mesh.faces.ToArray());
                 IsVisible = act.ToBool();
             }
-            cityObj.name = "ID = " + osmObj.Element.Id;
+            cityObj.name = "Highway ID = " + osmObj.Element.Id;
             cityObj.hideFlags = HideFlags.NotEditable;
         }
         else
@@ -950,7 +950,7 @@ public class Highway : CityObject
                     Destroy(parts[i].gameObject);
             }
             cityObj = mesh.gameObject;
-            cityObj.name = "ID = " + osmObj.Element.Id;
+            cityObj.name = "Highway ID = " + osmObj.Element.Id;
             cityObj.hideFlags = HideFlags.NotEditable;
             IsVisible = isVisible;
         }
@@ -993,7 +993,7 @@ public class Highway : CityObject
         positions = pos;
         cityObj = new GameObject
         {
-            name = "ID = " + osmObj.Element.Id,
+            name = "Highway ID = " + osmObj.Element.Id,
             hideFlags = HideFlags.NotEditable
         };
         if (material != null && material.shader == HighwayLoader.DefHighwayMat.shader)

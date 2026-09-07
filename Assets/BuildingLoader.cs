@@ -52,6 +52,7 @@ public class BuildingLoader : Loader
         // Loader's own copies of them
         ReleaseIntermediateLoadState();
 
+        //TODO: improve performance
         //obtient les bâtiments dont on connaît la hauteur et le nombre d'étages pour le "training set"
         var trainObjs = from obj in osmTagObjs
                         where obj.Element.Tags.ContainsKey("height")
@@ -77,6 +78,7 @@ public class BuildingLoader : Loader
 
     void Update()
     {
+        //TODO: improve performance
         if (Fields.writeFeatures && Main.FinishedAllLoading)
         {
             if (!isTrainingDone)
