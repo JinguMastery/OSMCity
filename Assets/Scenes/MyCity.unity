@@ -443,7 +443,7 @@ MonoBehaviour:
   nBuildingWays: -1
   reverseOrder: 0
   predMethod: 1
-  writeFeatures: 1
+  writeFeatures: 0
 --- !u!114 &505268862
 MonoBehaviour:
   m_ObjectHideFlags: 0

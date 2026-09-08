@@ -489,37 +489,39 @@ public class Highway : CityObject
         if (isPointProp)
         {
             GameObject prefab = Resources.Load<GameObject>(propInfo.prefabPath);
-            // this node comes from the else-branch below (osmObj.Element itself, an entry of Loader.Nodes)
-            // or the pos.Length == 1 degenerate way case above - either way it isn't a node shared with a
-            // normal multi-node way, so there's no way-order tangent to compute here; face/clear whichever
-            // nearby road segment is actually closest instead
-            Quaternion rotation = Quaternion.identity;
-            (Vector3 a, Vector3 b, long wayId, float halfWidth)? nearest = null;
-            if (node != null)
-            {
-                nearest = FindNearestSegment(pos);
-                Vector3 dir = nearest.HasValue ? DirectionAwayFromSegment(pos, nearest.Value.a, nearest.Value.b) : Vector3.forward;
-                dir = ApplyPrefabFacingQuirk(highwayType, dir);
-                rotation = Quaternion.LookRotation(dir, Vector3.up) * PostUprightCorrection;
-            }
-            cityObj = Instantiate(prefab, pos, rotation);
-            // a crossing sits ON the road it crosses (that's the point), so it doesn't need clearing away
-            // from whichever road is nearest the way every other point prop does
-            if (nearest.HasValue && highwayType != "crossing")
-            {
-                // the node itself isn't part of any way, but it stands beside whichever road segment is
-                // nearest (found above) - if a DIFFERENT, crossing road also passes close enough to overlap
-                // it here, slide it along that nearest road's own tangent, clear of the crossing one, same
-                // as an embedded node at a junction (see ResolveCrossWayOverlap)
-                Vector3 tangent = (nearest.Value.b - nearest.Value.a).normalized;
-                cityObj.transform.position = ResolveCrossWayOverlap(cityObj, pos, tangent, nearest.Value.wayId);
-            }
             if (highwayType == "crossing")
             {
-                // no nearby road segment to size against - HighwayWidth still resolves to a sensible default
-                // (3, its own field default) rather than leaving the prefab at its unrelated baked-in width
-                ScaleLongestSideTo(cityObj, nearest.HasValue ? nearest.Value.halfWidth * 2f : HighwayWidth);
-                cityObj.transform.position += Vector3.up * GroundLift(cityObj, pos.y);
+                // a standalone crossing node has no "own way" to exclude - it isn't shared with any way's
+                // node list at all - so this always searches every nearby segment
+                cityObj = Instantiate(prefab, pos, Quaternion.identity);
+                if (node != null)
+                    PositionCrossing(cityObj, pos, null);
+            }
+            else
+            {
+                // this node comes from the else-branch below (osmObj.Element itself, an entry of Loader.Nodes)
+                // or the pos.Length == 1 degenerate way case above - either way it isn't a node shared with a
+                // normal multi-node way, so there's no way-order tangent to compute here; face/clear whichever
+                // nearby road segment is actually closest instead
+                Quaternion rotation = Quaternion.identity;
+                (Vector3 a, Vector3 b, long wayId, float halfWidth)? nearest = null;
+                if (node != null)
+                {
+                    nearest = FindNearestSegment(pos);
+                    Vector3 dir = nearest.HasValue ? DirectionAwayFromSegment(pos, nearest.Value.a, nearest.Value.b) : Vector3.forward;
+                    dir = ApplyPrefabFacingQuirk(highwayType, dir);
+                    rotation = Quaternion.LookRotation(dir, Vector3.up) * PostUprightCorrection;
+                }
+                cityObj = Instantiate(prefab, pos, rotation);
+                if (nearest.HasValue)
+                {
+                    // the node itself isn't part of any way, but it stands beside whichever road segment is
+                    // nearest (found above) - if a DIFFERENT, crossing road also passes close enough to overlap
+                    // it here, slide it along that nearest road's own tangent, clear of the crossing one, same
+                    // as an embedded node at a junction (see ResolveCrossWayOverlap)
+                    Vector3 tangent = (nearest.Value.b - nearest.Value.a).normalized;
+                    cityObj.transform.position = ResolveCrossWayOverlap(cityObj, pos, tangent, nearest.Value.wayId);
+                }
             }
             // prefixed (per type) so every instance of a point prop - however many, whatever their OSM id - can
             // be found at once with a plain Hierarchy window search, instead of having to know each id up front
@@ -595,8 +597,7 @@ public class Highway : CityObject
         GameObject propObj = Instantiate(prefab, centerlinePos, rotation);
         if (propType == "crossing")
         {
-            ScaleLongestSideTo(propObj, HighwayWidth);
-            propObj.transform.position = centerlinePos + Vector3.up * GroundLift(propObj, centerlinePos.y);
+            PositionCrossing(propObj, centerlinePos, ownWayId);
         }
         else if (wayDir.HasValue)
         {
@@ -690,7 +691,13 @@ public class Highway : CityObject
     //crossing prefab's zebra-stripe mesh has some fixed width baked in from the source asset, unrelated to
     //any actual road it gets placed on; this resizes it (proportionally, so the stripe pitch isn't distorted)
     //to match whichever road segment it's crossing. Must run before GroundLift, since that reads bounds too
-    //and needs them to reflect the final scale, not the prefab's own default one
+    //and needs them to reflect the final scale, not the prefab's own default one.
+    //go's rotation at call time must not include any yaw away from a world-axis-aligned heading - Renderer.
+    //bounds is a world-space AABB, and yawing a rectangle to an arbitrary angle inflates that AABB well
+    //beyond the rectangle's true footprint (e.g. root-2x too wide on both axes at a 45-degree yaw), which
+    //would read as a longer "longest side" than the mesh actually has and undersize it. PostUprightCorrection
+    //alone (see PositionCrossing) is safe - a 90-degree-multiple rotation never inflates an AABB - any actual
+    //road-heading yaw has to be applied after this call instead, since uniform scale is unaffected by it
     private static void ScaleLongestSideTo(GameObject go, float targetWidth)
     {
         if (targetWidth <= 0f || !TryGetRendererBounds(go, out Bounds bounds))
@@ -808,14 +815,18 @@ public class Highway : CityObject
     //whichever segment, across every way in the loader, passes nearest to pos - used when a point-prop node
     //is its own standalone point rather than a node shared with a road way. HighwayLoader.GetNearbySegments
     //does the heavy lifting via a precomputed spatial grid, so this only ever checks segments already known
-    //to be within HighwayLoader.MaxPostToWayDistance's neighborhood, not every segment in the whole loader
-    private (Vector3 a, Vector3 b, long wayId, float halfWidth)? FindNearestSegment(Vector3 pos)
+    //to be within HighwayLoader.MaxPostToWayDistance's neighborhood, not every segment in the whole loader.
+    //excludeWayId skips segments belonging to that one way - used to look past a crossing node's own way
+    //(typically a footway that merely touches the road here, not the road itself) to find the actual road
+    private (Vector3 a, Vector3 b, long wayId, float halfWidth)? FindNearestSegment(Vector3 pos, long? excludeWayId = null)
     {
         float bestDistSqr = HighwayLoader.MaxPostToWayDistance * HighwayLoader.MaxPostToWayDistance;
         (Vector3, Vector3, long, float)? best = null;
         foreach (var segment in ((HighwayLoader)osmObj.Loader).GetNearbySegments(pos))
         {
-            var (a, b, _, _) = segment;
+            var (a, b, wayId, _) = segment;
+            if (excludeWayId.HasValue && wayId == excludeWayId.Value)
+                continue;
             Vector3 ab = b - a;
             float lenSqr = ab.sqrMagnitude;
             if (lenSqr <= 0f)
@@ -829,6 +840,75 @@ public class Highway : CityObject
             }
         }
         return best;
+    }
+
+    private static Vector3 ClosestPointOnSegment(Vector3 pos, Vector3 a, Vector3 b)
+    {
+        Vector3 ab = b - a;
+        float lenSqr = ab.sqrMagnitude;
+        if (lenSqr <= 0f)
+            return a;
+        float t = Mathf.Clamp01(Vector3.Dot(pos - a, ab) / lenSqr);
+        return a + ab * t;
+    }
+
+    //repositions/reorients/resizes an already-instantiated "crossing" zebra-mesh prop so it centers on and
+    //spans the actual road it marks, rather than sitting wherever the tagging node itself happens to be:
+    //finds the nearest road segment - excluding ownWayId, the node's own way, when given, since that's
+    //typically a footway merely touching the road here rather than the road itself, falling back to
+    //including it if nothing else is nearby (a crossing tagged directly on a node of the road's own way) -
+    //snaps to the closest point on that segment, rotates so the mesh's own already-scaled axis (see
+    //ScaleLongestSideTo) runs across it, and sizes it to that road's actual width. Falls back to this way's
+    //own HighwayWidth, facing PostUprightCorrection's own baseline yaw, if no road segment is within
+    //HighwayLoader.MaxPostToWayDistance at all - which happens for a real crossing node whenever the road it
+    //marks simply isn't part of the currently loaded way set (e.g. a smaller test extract that dropped it)
+    private void PositionCrossing(GameObject propObj, Vector3 pos, long? ownWayId)
+    {
+        var nearest = (ownWayId.HasValue ? FindNearestSegment(pos, ownWayId) : null) ?? FindNearestSegment(pos);
+        Vector3 groundPos = pos;
+        float targetWidth = HighwayWidth;
+        Quaternion yaw = Quaternion.identity;
+        if (nearest.HasValue)
+        {
+            groundPos = ClosestPointOnSegment(pos, nearest.Value.a, nearest.Value.b);
+            Vector3 tangent = (nearest.Value.b - nearest.Value.a).normalized;
+            // LookRotation's forward has to be the road's own tangent here, NOT across it - PostUprightCorrection
+            // sits underneath this yaw (see "yaw * PostUprightCorrection" below), and composing that way pre-swaps
+            // the mesh's local width axis onto LookRotation's "right" (Cross(up, forward)), not onto "forward"
+            // itself. Passing tangent as forward puts "right" (= Cross(up, tangent), i.e. across the road) where
+            // the width axis lands - which is what actually needs to run across the road for the crossing to
+            // span it, rather than run along it
+            yaw = Quaternion.LookRotation(tangent, Vector3.up);
+            targetWidth = nearest.Value.halfWidth * 2f;
+        }
+        else
+        {
+            Debug.LogWarning("Crossing node has no road within " + HighwayLoader.MaxPostToWayDistance + "m, left unsnapped: " + osmObj.Element.Id);
+        }
+        // Renderer.bounds (what ScaleLongestSideTo/TryGetRendererBounds read) is a world-space AABB, which
+        // for a mesh yawed to an arbitrary heading - the common case, since roads are rarely aligned to
+        // world X/Z - is inflated diagonally beyond the mesh's true footprint (e.g. a square yawed 45 degrees
+        // measures root-2 times too wide on both axes). That inflated "longest side" made ScaleLongestSideTo
+        // shrink the mesh well below the road's real width. PostUprightCorrection alone (no yaw yet) is a
+        // 90-degree-multiple rotation, which never inflates an AABB, so scaling has to happen in that pose -
+        // uniform scale is unaffected by whatever rotation is applied afterward, so the yaw goes on after
+        propObj.transform.rotation = PostUprightCorrection;
+        ScaleLongestSideTo(propObj, targetWidth);
+        propObj.transform.rotation = yaw * PostUprightCorrection;
+        // Road_Crosswalk's own root pivot sits at its local origin, but its mesh's local vertices (baked
+        // into the prefab) span roughly y:[9.6, 15] - nowhere near that origin, unlike x:[-5.23, 5.23] which
+        // IS centered on it. So the pivot is several meters away from the mesh's actual center, and simply
+        // placing the pivot at groundPos leaves the visible mesh displaced off to the side instead of
+        // centered on the road. Renderer.bounds.center is measured once, after the final scale/rotation
+        // above, and the whole object is shifted by (groundPos - that center) so the CENTER - not the pivot -
+        // ends up at the target point; GroundLift's contribution rides along in the same read since it also
+        // reads propObj's current (pre-shift) bounds
+        TryGetRendererBounds(propObj, out Bounds bounds);
+        // same per-tier vertical step every road/path mesh gets from ComputeHeightTierOffset, so the
+        // crosswalk sits clear of (instead of z-fighting with) the road surface tier it crosses
+        float lift = GroundLift(propObj, groundPos.y) + RankHeightStep * HighwayTypeRank["crossing"];
+        Vector3 shift = new Vector3(groundPos.x - bounds.center.x, lift, groundPos.z - bounds.center.z);
+        propObj.transform.position += shift;
     }
 
     //direction from the closest point of segment a-b out to pos, ACROSS the road - the same "outward, away
