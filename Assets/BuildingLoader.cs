@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using UnityEngine;
 
 public class BuildingLoader : Loader
@@ -52,25 +51,23 @@ public class BuildingLoader : Loader
         // Loader's own copies of them
         ReleaseIntermediateLoadState();
 
-        //TODO: improve performance
         //obtient les bâtiments dont on connaît la hauteur et le nombre d'étages pour le "training set"
-        var trainObjs = from obj in osmTagObjs
-                        where obj.Element.Tags.ContainsKey("height")
-                        select obj;
-
-        foreach (var obj in trainObjs)
+        // plain loops instead of LINQ - avoids the query-iterator/delegate allocation and, by presizing
+        // capacity up front, the List<T> doubling-and-copying that Add() would otherwise trigger repeatedly
+        // for a large extract's worth of buildings
+        buildingsTraining.Capacity = osmTagObjs.Count;
+        foreach (var obj in osmTagObjs)
         {
-            buildingsTraining.Add(CreateBuilding(obj));
+            if (obj.Element.Tags.ContainsKey("height"))
+                buildingsTraining.Add(CreateBuilding(obj));
         }
 
         //obtient le reste des bâtiments pour le "test set"
-        var testObjs = from obj in osmObjs
-                       where !obj.Element.Tags.ContainsKey("height")
-                       select obj;
-
-        foreach (var obj in testObjs)
+        buildingsTest.Capacity = osmObjs.Count;
+        foreach (var obj in osmObjs)
         {
-            buildingsTest.Add(CreateBuilding(obj));
+            if (!obj.Element.Tags.ContainsKey("height"))
+                buildingsTest.Add(CreateBuilding(obj));
         }
 
         FinishedLoading = true; //tell the program that we’ve finished loading data.
@@ -78,32 +75,36 @@ public class BuildingLoader : Loader
 
     void Update()
     {
-        //TODO: improve performance
         if (Fields.writeFeatures && Main.FinishedAllLoading)
         {
-            if (!isTrainingDone)
+            if (!isTrainingDone && AllMeshesCreated(buildingsTraining))
             {
-                var meshBuildings = from building in buildingsTraining
-                                    where !building.IsMeshCreated
-                                    select building;
-                if (!meshBuildings.Any())
-                {
-                    SaveBuildings(buildingsTraining.ToArray(), Fields.trainingPath);
-                    isTrainingDone = true;
-                }
+                SaveBuildings(buildingsTraining.ToArray(), Fields.trainingPath);
+                isTrainingDone = true;
             }
-            if (!isTestDone)
+            if (!isTestDone && AllMeshesCreated(buildingsTest))
             {
-                var meshBuildings = from building in buildingsTest
-                                    where !building.IsMeshCreated
-                                    select building;
-                if (!meshBuildings.Any())
-                {
-                    SaveBuildings(buildingsTest.ToArray(), Fields.testPath);
-                    isTestDone = true;
-                }
+                SaveBuildings(buildingsTest.ToArray(), Fields.testPath);
+                isTestDone = true;
             }
+            // every Building's own Start() (which sets IsMeshCreated) already ran in the same frame this
+            // loader's Start() created them, so by the time Main.FinishedAllLoading first turns true both
+            // checks above resolve immediately - nothing left for this Update() to ever do afterward
+            if (isTrainingDone && isTestDone)
+                enabled = false;
         }
+    }
+
+    // plain loop with an early-exit break instead of a LINQ query + Any() - avoids allocating a query
+    // iterator every frame this runs for what is, in practice, a single check
+    private static bool AllMeshesCreated(List<Building> buildings)
+    {
+        foreach (var building in buildings)
+        {
+            if (!building.IsMeshCreated)
+                return false;
+        }
+        return true;
     }
 
     public void LoadHeights()
