@@ -77,7 +77,10 @@ public class Highway : CityObject
         { "give_way", ("Prefabs/StreetSign_F", "GiveWay ") },
         { "stop", ("Prefabs/StreetSign_C", "Stop ") },
         { "street_lamp", ("Prefabs/LampPost_J", "StreetLamp ") },
-        { "crossing", ("Prefabs/Road_Crosswalk", "Crossing ") }
+        { "crossing", ("Prefabs/Road_Crosswalk", "Crossing ") },
+        { "emergency_access_point", ("Prefabs/EmergencySign", "EmergencyAccessPoint ") },
+        //{ "mini_roundabout", ("Prefabs/MiniRoundabout", "MiniRoundabout ") },
+        //{ "speed_camera", ("Prefabs/SpeedCamera", "SpeedCamera ") },
     };
 
     public Material HighwayMaterial
